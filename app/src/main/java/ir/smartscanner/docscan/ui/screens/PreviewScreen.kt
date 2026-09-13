@@ -72,7 +72,7 @@ fun PreviewScreen(
     }
 
     // بیت‌مپ فعال جاری (قبل از فیلتر، پس از اعمال برش‌های پرسپکتیو)
-    var currentRawBitmap by remember { mutableStateOf(initialBitmap) }
+    var currentRawBitmap by remember(initialBitmap) { mutableStateOf(initialBitmap) }
 
     // بیت‌مپ نهایی فیلتر شده (فتوکپی، سیاه و سفید، رنگی شفاف یا اصلی)
     var processedBitmap by remember { mutableStateOf<Bitmap?>(null) }
@@ -329,28 +329,34 @@ fun PreviewScreen(
         },
         containerColor = BackgroundLight
     ) { innerPadding ->
-        // کادر پیش‌نمایش تصویر در وسط صفحه
+        // کادر پیش‌نمایش تصویر در وسط صفحه بر روی سطح ملایم خاکستری
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(14.dp),
+                .background(Color(0xFFE2E8F0)) // سطح ملایم میز کار
+                .padding(horizontal = 16.dp, vertical = 12.dp),
             contentAlignment = Alignment.Center
         ) {
-            Card(
+            // برگه سفید سند اسکن‌شده تمیز (Clean White A4 Document Sheet)
+            Surface(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .fillMaxHeight(0.96f)
+                    .fillMaxWidth(0.96f)
+                    .fillMaxHeight(0.98f)
                     .shadow(
-                        elevation = 8.dp,
-                        shape = RoundedCornerShape(14.dp),
-                        spotColor = Color.Black.copy(alpha = 0.2f)
-                    ),
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White)
+                        elevation = 10.dp,
+                        shape = RoundedCornerShape(4.dp),
+                        spotColor = Color.Black.copy(alpha = 0.25f)
+                    )
+                    .border(1.dp, Color(0xFFCBD5E1), RoundedCornerShape(4.dp)),
+                shape = RoundedCornerShape(4.dp),
+                color = Color.White
             ) {
                 Box(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.White)
+                        .padding(8.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     val displayBitmap = processedBitmap ?: currentRawBitmap
@@ -359,18 +365,17 @@ fun PreviewScreen(
                         contentDescription = docTitle,
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(8.dp)
-                            .clip(RoundedCornerShape(8.dp)),
+                            .clip(RoundedCornerShape(2.dp)),
                         contentScale = ContentScale.Fit
                     )
 
-                    // نشانگر گوشه بالا
+                    // نشانگر فیلتر در گوشه بالا
                     Surface(
                         shape = RoundedCornerShape(8.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.92f),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.95f),
                         modifier = Modifier
                             .align(Alignment.TopEnd)
-                            .padding(14.dp)
+                            .padding(10.dp)
                     ) {
                         Text(
                             text = "فیلتر: ${selectedFilter.titleFa}",
@@ -379,6 +384,33 @@ fun PreviewScreen(
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                         )
+                    }
+
+                    // نشانگر در حال پردازش در صورت لودینگ
+                    if (isProcessing) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color.Black.copy(alpha = 0.65f),
+                            modifier = Modifier.align(Alignment.Center)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = Color.White
+                                )
+                                Text(
+                                    text = "در حال پردازش و پاکسازی صفحه...",
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
                     }
                 }
             }

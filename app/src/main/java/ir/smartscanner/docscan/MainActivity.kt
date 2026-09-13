@@ -206,16 +206,16 @@ fun SmartScannerApp() {
                         val newDocId = "new_${System.currentTimeMillis()}"
                         val newDoc = DocumentItem(
                             id = newDocId,
-                            title = capturedDocTitle.ifEmpty { "سند جدید - ${DocStorageManager.getPersianDateNow()}" },
+                            title = capturedDocTitle.ifEmpty { "سند اسکن‌شده - ${DocStorageManager.getPersianDateNow()}" },
                             datePersian = DocStorageManager.getPersianDateNow(),
                             filter = ScanFilter.PHOTOCOPY,
                             pageCount = 1,
                             bitmap = processedBitmap
                         )
                         pendingDocument = newDoc
-                        capturedRawBitmap = null
+                        // هدایت مطمئن به صفحه پیش‌نمایش و خارج کردن صفحه برش از BackStack
                         navController.navigate(Screen.Preview.createRoute(newDocId)) {
-                            popUpTo(Screen.Home.route) { inclusive = false }
+                            popUpTo(Screen.Crop.route) { inclusive = true }
                         }
                     },
                     onCancel = {
@@ -223,9 +223,9 @@ fun SmartScannerApp() {
                         navController.popBackStack()
                     }
                 )
-            } else {
+            } else if (pendingDocument == null) {
                 LaunchedEffect(Unit) {
-                    navController.popBackStack()
+                    navController.popBackStack(Screen.Home.route, inclusive = false)
                 }
             }
         }
@@ -238,7 +238,7 @@ fun SmartScannerApp() {
             )
         ) { backStackEntry ->
             val docId = backStackEntry.arguments?.getString("docId")
-            val document = if (docId == pendingDocument?.id) {
+            val document = if (docId != null && pendingDocument?.id == docId) {
                 pendingDocument
             } else {
                 documentList.find { it.id == docId }
@@ -247,12 +247,15 @@ fun SmartScannerApp() {
             PreviewScreen(
                 document = document,
                 onBack = {
-                    navController.popBackStack()
+                    pendingDocument = null
+                    capturedRawBitmap = null
+                    navController.popBackStack(Screen.Home.route, inclusive = false)
                 },
                 onSaveSuccess = {
                     refreshDocuments()
                     pendingDocument = null
-                    navController.popBackStack()
+                    capturedRawBitmap = null
+                    navController.popBackStack(Screen.Home.route, inclusive = false)
                 }
             )
         }

@@ -155,8 +155,12 @@ export default function App() {
     showToast('عملیات برش و تراز کادر لغو شد');
   };
 
-  // تایید نهایی در صفحه PerspectiveCropView و ارسال متغیر وضعیت تصویر پردازش‌شده به صفحه نمایش نهایی
-  const handleConfirmCropAndNavigate = () => {
+  // تایید نهایی در صفحه PerspectiveCropView و ارسال متغیر وضعیت تصویر پردازش‌شده به صفحه نمایش نهایی (Preview)
+  const handleConfirmCropAndNavigate = (e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
     setIsPerspectiveCropped(true);
     const finalProcessedImage = capturedImage || customImage || activeDoc.imageSrc;
     setCustomImage(finalProcessedImage);
@@ -164,7 +168,7 @@ export default function App() {
     const newDocId = `doc-${Date.now()}`;
     const newDoc: DocumentItem = {
       id: newDocId,
-      title: capturedTitle || 'سند پردازش‌شده جدید',
+      title: capturedTitle || 'سند اسکن‌شده جدید',
       datePersian: 'امروز',
       filter: 'photocopy',
       pageCount: 1,
@@ -174,9 +178,9 @@ export default function App() {
     setActiveDocId(newDocId);
     setSelectedFilter('photocopy');
 
-    // ارسال متغیر وضعیت تصویر پردازش‌شده به صفحه نمایش نهایی (Preview)
+    // هدایت قطعی به صفحه نمایش نهایی (پیش‌نمایش سند در برگه سفید تمیز)
     setCurrentScreen('preview');
-    showToast('تصویر پردازش و تراز شد و به صفحه نمایش نهایی (Preview) ارسال گردید');
+    showToast('سند پردازش و تراز شد و در صفحه سفید تمیز پیش‌نمایش قرار گرفت');
   };
 
   const handleSaveFilter = () => {
@@ -414,20 +418,20 @@ NavHost(navController = navController, startDestination = Screen.Home.route) {
             PerspectiveCropView(
                 initialBitmap = rawBitmap,
                 onConfirmCrop = { processedBitmap ->
-                    // پس از تأیید نهایی، متغیر وضعیت تصویر پردازش‌شده به صفحه نمایش نهایی ارسال می‌شود
+                    // پس از تأیید نهایی، متغیر وضعیت تصویر پردازش‌شده به صفحه پیش‌نمایش نهایی ارسال می‌شود
                     val newDocId = "new_\${System.currentTimeMillis()}"
                     val newDoc = DocumentItem(
                         id = newDocId,
-                        title = capturedDocTitle.ifEmpty { "سند جدید" },
+                        title = capturedDocTitle.ifEmpty { "سند اسکن‌شده - \${DocStorageManager.getPersianDateNow()}" },
                         datePersian = DocStorageManager.getPersianDateNow(),
                         filter = ScanFilter.PHOTOCOPY,
                         pageCount = 1,
                         bitmap = processedBitmap
                     )
                     pendingDocument = newDoc
-                    capturedRawBitmap = null
+                    // هدایت مطمئن به صفحه پیش‌نمایش و خارج کردن صفحه برش از BackStack
                     navController.navigate(Screen.Preview.createRoute(newDocId)) {
-                        popUpTo(Screen.Home.route) { inclusive = false }
+                        popUpTo(Screen.Crop.route) { inclusive = true }
                     }
                 },
                 onCancel = {
@@ -435,12 +439,35 @@ NavHost(navController = navController, startDestination = Screen.Home.route) {
                     navController.popBackStack()
                 }
             )
+        } else if (pendingDocument == null) {
+            LaunchedEffect(Unit) {
+                navController.popBackStack(Screen.Home.route, inclusive = false)
+            }
         }
     }
 
-    // صفحه نمایش نهایی و فیلترها
+    // صفحه نمایش نهایی و فیلترها (سند اسکن‌شده در صفحه سفید تمیز)
     composable(Screen.Preview.route) { backStackEntry ->
-        PreviewScreen(document = ..., onBack = { navController.popBackStack() })
+        val docId = backStackEntry.arguments?.getString("docId")
+        val document = if (docId != null && pendingDocument?.id == docId) {
+            pendingDocument
+        } else {
+            documentList.find { it.id == docId }
+        }
+        PreviewScreen(
+            document = document,
+            onBack = {
+                pendingDocument = null
+                capturedRawBitmap = null
+                navController.popBackStack(Screen.Home.route, inclusive = false)
+            },
+            onSaveSuccess = {
+                refreshDocuments()
+                pendingDocument = null
+                capturedRawBitmap = null
+                navController.popBackStack(Screen.Home.route, inclusive = false)
+            }
+        )
     }
 }`
     },
@@ -1102,74 +1129,81 @@ fun PerspectiveCropView(
                       </div>
                     </div>
 
-                    {/* کادر نمایش تصویر مدرک در مرکز */}
-                    <div className="flex-1 p-4 flex items-center justify-center overflow-hidden">
+                    {/* کادر نمایش سند اسکن‌شده تمیز در برگه سفید A4 */}
+                    <div className="flex-1 p-3.5 flex items-center justify-center overflow-hidden bg-slate-200/80">
+                      {/* برگه سفید سند اسکن‌شده */}
                       <div 
-                        className={`w-full h-full max-h-[360px] rounded-2xl p-5 shadow-xl border border-slate-300 flex flex-col justify-between transition-all duration-300 relative overflow-hidden ${
-                          isPerspectiveCropped ? 'ring-2 ring-emerald-400' : ''
-                        }`}
-                        style={getFilterStyle(selectedFilter)}
+                        className="w-full max-w-[315px] aspect-[1/1.38] bg-white rounded-[3px] shadow-[0_12px_35px_rgba(0,0,0,0.2)] border border-slate-300/80 p-4 flex flex-col justify-between transition-all duration-300 relative overflow-hidden select-none"
                       >
                         {customImage || activeDoc.imageSrc ? (
-                          <div className="w-full h-full relative flex items-center justify-center">
+                          <div className="w-full h-full relative flex items-center justify-center bg-white p-1">
                             <img 
                               src={customImage || activeDoc.imageSrc} 
                               alt="سند اسکن شده" 
-                              className="max-h-full max-w-full object-contain rounded-lg shadow-sm"
+                              className="max-h-full max-w-full object-contain rounded-xs shadow-xs"
+                              style={getFilterStyle(selectedFilter)}
                             />
                           </div>
                         ) : (
-                          <>
+                          <div 
+                            className="w-full h-full flex flex-col justify-between"
+                            style={getFilterStyle(selectedFilter)}
+                          >
                             {/* هدر سند رسمی */}
-                            <div className="flex items-center justify-between border-b pb-3 border-current/20">
-                              <div className="w-8 h-8 rounded bg-current/10 flex items-center justify-center text-xs font-bold">
+                            <div className="flex items-center justify-between border-b pb-2.5 border-slate-300">
+                              <div className="w-7 h-7 rounded bg-slate-100 flex items-center justify-center text-xs font-bold shadow-xs">
                                 🇮🇷
                               </div>
                               <div className="text-center">
-                                <span className="text-[10px] block opacity-75">جمهوری اسلامی ایران</span>
-                                <h4 className="font-bold text-xs">{activeDoc.title}</h4>
+                                <span className="text-[10px] font-medium block text-slate-500">جمهوری اسلامی ایران</span>
+                                <h4 className="font-bold text-xs text-slate-800">{activeDoc.title}</h4>
                               </div>
-                              <div className="w-8 h-8 rounded bg-current/10 flex items-center justify-center text-[10px]">
-                                شماره: ۱۴۰۳
+                              <div className="text-[9px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                                ۱۴۰۳/۰۲/۱۵
                               </div>
                             </div>
 
-                            {/* خطوط شبیه‌سازی متن مدرک */}
-                            <div className="space-y-3 py-2">
-                              <div className="h-2 bg-current/40 rounded w-1/3" />
+                            {/* خطوط شبیه‌سازی متن مدرک اسکن‌شده با کیفیت و کنتراست بالا */}
+                            <div className="space-y-2.5 py-2">
+                              <div className="h-2 bg-slate-800 rounded-xs w-2/5" />
                               <div className="space-y-1.5">
-                                <div className="h-1.5 bg-current/30 rounded w-full" />
-                                <div className="h-1.5 bg-current/30 rounded w-5/6" />
-                                <div className="h-1.5 bg-current/30 rounded w-4/6" />
+                                <div className="h-1.5 bg-slate-700 rounded-xs w-full" />
+                                <div className="h-1.5 bg-slate-700 rounded-xs w-11/12" />
+                                <div className="h-1.5 bg-slate-700 rounded-xs w-5/6" />
                               </div>
-                              <div className="h-2 bg-current/40 rounded w-1/4" />
+                              <div className="h-2 bg-slate-800 rounded-xs w-1/3 pt-1" />
                               <div className="space-y-1.5">
-                                <div className="h-1.5 bg-current/30 rounded w-full" />
-                                <div className="h-1.5 bg-current/30 rounded w-3/4" />
+                                <div className="h-1.5 bg-slate-700 rounded-xs w-full" />
+                                <div className="h-1.5 bg-slate-700 rounded-xs w-4/5" />
                               </div>
                             </div>
 
                             {/* مهر و امضای رسمی پایین سند */}
-                            <div className="flex items-center justify-between pt-3 border-t border-current/20">
-                              <div className="w-12 h-12 rounded-full border-2 border-red-600 flex items-center justify-center text-[9px] text-red-600 font-black rotate-[-12deg]">
+                            <div className="flex items-center justify-between pt-2 border-t border-slate-300">
+                              <div className="w-12 h-12 rounded-full border-2 border-red-600 flex items-center justify-center text-[9px] text-red-600 font-black rotate-[-12deg] shadow-xs">
                                 تأیید شد
                               </div>
                               <div className="text-left">
-                                <div className="text-[9px] opacity-75">امضا و تاریخ</div>
-                                <div className="w-16 h-4 border-b border-current/40" />
+                                <div className="text-[9px] text-slate-500">محل امضا و اثر انگشت</div>
+                                <div className="w-16 h-4 border-b-2 border-slate-800 mt-1" />
                               </div>
                             </div>
-                          </>
+                          </div>
                         )}
 
-                        {/* نشانگر حالت فعال روی سند */}
-                        <div className="absolute top-2 left-2 bg-black/60 text-white text-[10px] px-2 py-0.5 rounded-full backdrop-blur-sm">
-                          فیلتر: {getFilterLabel(selectedFilter)}
+                        {/* نشانگر برگه سفید سند اسکن‌شده */}
+                        <div className="absolute top-2 right-2 bg-slate-900/80 text-white text-[9px] px-2 py-0.5 rounded-full backdrop-blur-xs font-medium">
+                          برگه سفید A4 اسکن‌شده
+                        </div>
+
+                        {/* نشانگر فیلتر اعمال‌شده */}
+                        <div className="absolute top-2 left-2 bg-sky-600 text-white text-[9px] px-2 py-0.5 rounded-full shadow-xs font-bold">
+                          {getFilterLabel(selectedFilter)}
                         </div>
 
                         {/* نشانگر تراز بودن پرسپکتیو */}
                         {isPerspectiveCropped && (
-                          <div className="absolute bottom-2 left-2 bg-emerald-600/90 text-white text-[10px] px-2 py-0.5 rounded-full backdrop-blur-sm flex items-center gap-1">
+                          <div className="absolute bottom-2 left-2 bg-emerald-600/90 text-white text-[9px] px-2 py-0.5 rounded-full backdrop-blur-xs flex items-center gap-1">
                             <Check className="w-3 h-3" />
                             <span>تراز با Matrix.setPolyToPoly</span>
                           </div>
