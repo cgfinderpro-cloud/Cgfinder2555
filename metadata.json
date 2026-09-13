@@ -1,0 +1,6 @@
+{
+  "name": "اسکنر و فتوکپی هوشمند مدارک",
+  "description": "اپلیکیشن نیتیو اندروید با Jetpack Compose، پشتیبانی کامل از زبان فارسی، پردازش آفلاین مدارک و ورکفلو CI/CD گیتهاب اکشنز",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,18 @@
+<resources>
+    <string name="app_name">اسکنر و فتوکپی هوشمند</string>
+    <string name="home_title">اسکنر مدارک</string>
+    <string name="recent_docs">مدارک اخیر</string>
+    <string name="no_docs_title">هنوز مدرکی اسکن نشده است</string>
+    <string name="no_docs_subtitle">با استفاده از دوربین یا گالری، اولین مدرک خود را اضافه کنید</string>
+    <string name="fab_camera">دوربین</string>
+    <string name="fab_gallery">گالری</string>
+    <string name="filter_photocopy">فتوکپی</string>
+    <string name="filter_bw">سیاه و سفید</string>
+    <string name="filter_color">رنگی شفاف</string>
+    <string name="filter_original">اصلی</string>
+    <string name="action_back">بازگشت</string>
+    <string name="action_share">اشتراک‌گذاری</string>
+    <string name="action_save">ذخیره مدرک</string>
+    <string name="save_success">مدرک با موفقیت در حافظه ذخیره شد</string>
+    <string name="share_success">آماده‌سازی جهت اشتراک‌گذاری...</string>
+</resources>
