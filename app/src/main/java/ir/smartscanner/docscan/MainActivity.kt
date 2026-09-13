@@ -27,6 +27,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import ir.smartscanner.docscan.model.DocumentItem
 import ir.smartscanner.docscan.model.ScanFilter
+import ir.smartscanner.docscan.ui.components.PerspectiveCropView
 import ir.smartscanner.docscan.ui.navigation.Screen
 import ir.smartscanner.docscan.ui.screens.HomeScreen
 import ir.smartscanner.docscan.ui.screens.PreviewScreen
@@ -75,19 +76,15 @@ fun SmartScannerApp() {
         refreshDocuments()
     }
 
-    // هدایت به صفحه پیش‌نمایش سند جدید
-    fun openNewDocumentPreview(bitmap: Bitmap, title: String) {
-        val newDocId = "new_${System.currentTimeMillis()}"
-        val newDoc = DocumentItem(
-            id = newDocId,
-            title = title,
-            datePersian = DocStorageManager.getPersianDateNow(),
-            filter = ScanFilter.PHOTOCOPY,
-            pageCount = 1,
-            bitmap = bitmap
-        )
-        pendingDocument = newDoc
-        navController.navigate(Screen.Preview.createRoute(newDocId))
+    // متغیرهای موقت برای تصویری که تازه از دوربین یا گالری گرفته شده (قبل از برش و پرسپکتیو)
+    var capturedRawBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var capturedDocTitle by remember { mutableStateOf<String>("") }
+
+    // هدایت بلافاصله به صفحه تنظیم کادر و برش پرسپکتیو (PerspectiveCropView) به جای پیش‌نمایش ساده
+    fun openCropScreenForNewCapture(bitmap: Bitmap, title: String) {
+        capturedRawBitmap = bitmap
+        capturedDocTitle = title
+        navController.navigate(Screen.Crop.route)
     }
 
     // ۲. لانچر عکس‌برداری کیفیت بالا با TakePicture
@@ -97,7 +94,7 @@ fun SmartScannerApp() {
         if (success && tempCameraUri != null) {
             val bitmap = DocFilterEngine.loadBitmapFromUri(context, tempCameraUri!!)
             if (bitmap != null) {
-                openNewDocumentPreview(bitmap, "سند دوربین - ${DocStorageManager.getPersianDateNow()}")
+                openCropScreenForNewCapture(bitmap, "سند دوربین - ${DocStorageManager.getPersianDateNow()}")
             } else {
                 Toast.makeText(context, "خطا در بارگذاری تصویر دوربین", Toast.LENGTH_SHORT).show()
             }
@@ -109,7 +106,7 @@ fun SmartScannerApp() {
         contract = ActivityResultContracts.TakePicturePreview()
     ) { bitmap: Bitmap? ->
         if (bitmap != null) {
-            openNewDocumentPreview(bitmap, "سند دوربین - ${DocStorageManager.getPersianDateNow()}")
+            openCropScreenForNewCapture(bitmap, "سند دوربین - ${DocStorageManager.getPersianDateNow()}")
         }
     }
 
@@ -168,7 +165,7 @@ fun SmartScannerApp() {
         if (uri != null) {
             val loadedBitmap = DocFilterEngine.loadBitmapFromUri(context, uri)
             if (loadedBitmap != null) {
-                openNewDocumentPreview(loadedBitmap, "سند گالری - ${DocStorageManager.getPersianDateNow()}")
+                openCropScreenForNewCapture(loadedBitmap, "سند گالری - ${DocStorageManager.getPersianDateNow()}")
             } else {
                 Toast.makeText(context, "خطا در خواندن تصویر از گالری", Toast.LENGTH_SHORT).show()
             }
@@ -179,7 +176,7 @@ fun SmartScannerApp() {
         navController = navController,
         startDestination = Screen.Home.route
     ) {
-        // صفحه اصلی (Home)
+        // ۱. صفحه اصلی (Home)
         composable(Screen.Home.route) {
             HomeScreen(
                 documents = documentList,
@@ -198,7 +195,42 @@ fun SmartScannerApp() {
             )
         }
 
-        // صفحه پیش‌نمایش و فیلترها (Preview Screen)
+        // ۲. صفحه برش و تنظیم پرسپکتیو (PerspectiveCropView) - بلافاصله پس از عکس‌برداری یا انتخاب گالری
+        composable(Screen.Crop.route) {
+            val rawBitmap = capturedRawBitmap
+            if (rawBitmap != null) {
+                PerspectiveCropView(
+                    initialBitmap = rawBitmap,
+                    onConfirmCrop = { processedBitmap ->
+                        // پس از تأیید نهایی، متغیر وضعیت تصویر پردازش‌شده به صفحه نمایش نهایی ارسال می‌شود
+                        val newDocId = "new_${System.currentTimeMillis()}"
+                        val newDoc = DocumentItem(
+                            id = newDocId,
+                            title = capturedDocTitle.ifEmpty { "سند جدید - ${DocStorageManager.getPersianDateNow()}" },
+                            datePersian = DocStorageManager.getPersianDateNow(),
+                            filter = ScanFilter.PHOTOCOPY,
+                            pageCount = 1,
+                            bitmap = processedBitmap
+                        )
+                        pendingDocument = newDoc
+                        capturedRawBitmap = null
+                        navController.navigate(Screen.Preview.createRoute(newDocId)) {
+                            popUpTo(Screen.Home.route) { inclusive = false }
+                        }
+                    },
+                    onCancel = {
+                        capturedRawBitmap = null
+                        navController.popBackStack()
+                    }
+                )
+            } else {
+                LaunchedEffect(Unit) {
+                    navController.popBackStack()
+                }
+            }
+        }
+
+        // ۳. صفحه نمایش نهایی و فیلترها (Preview Screen)
         composable(
             route = Screen.Preview.route,
             arguments = listOf(

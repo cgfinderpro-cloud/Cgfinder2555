@@ -248,7 +248,8 @@ fun PerspectiveCropView(
                                     val currentScreenPt = screenPoints[index]
                                     val newScreenPt = currentScreenPt + dragAmount
                                     val newBmpPt = toBitmap(newScreenPt)
-                                    corners = corners.withPoint(index, newBmpPt)
+                                    // اعمال تنظیم دستی گوشه با TransformationManager
+                                    corners = PerspectiveCropEngine.adjustCorner(corners, index, newBmpPt)
                                 }
                             )
                         }

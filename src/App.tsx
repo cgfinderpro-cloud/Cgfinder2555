@@ -19,7 +19,11 @@ import {
   Search,
   MoreVertical,
   Upload,
-  Info
+  Info,
+  Crop,
+  RotateCw,
+  Wand2,
+  Maximize2
 } from 'lucide-react';
 
 type FilterType = 'photocopy' | 'bw' | 'color' | 'original';
@@ -58,20 +62,37 @@ const INITIAL_DOCUMENTS: DocumentItem[] = [
 ];
 
 export default function App() {
-  const [currentScreen, setCurrentScreen] = useState<'home' | 'preview'>('home');
+  const [currentScreen, setCurrentScreen] = useState<'home' | 'crop' | 'preview'>('home');
   const [documents, setDocuments] = useState<DocumentItem[]>(INITIAL_DOCUMENTS);
   const [activeDocId, setActiveDocId] = useState<string>('doc-1');
   const [selectedFilter, setSelectedFilter] = useState<FilterType>('photocopy');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'preview' | 'code' | 'cicd'>('preview');
-  const [selectedFileCode, setSelectedFileCode] = useState<string>('app/build.gradle.kts');
+  const [selectedFileCode, setSelectedFileCode] = useState<string>('NavGraph.kt');
   const [customImage, setCustomImage] = useState<string | null>(null);
+
+  // وضعیت‌های تصویر گرفته‌شده از دوربین یا انتخاب‌شده از گالری قبل از برش
+  const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [capturedTitle, setCapturedTitle] = useState<string>('');
+
+  // وضعیت‌های مربوط به برش ۴ گوشه و تصحیح پرسپکتیو با Matrix.setPolyToPoly و Canny
+  const [rotationDegrees, setRotationDegrees] = useState(0);
+  const [corners, setCorners] = useState<{ x: number; y: number }[]>([
+    { x: 12, y: 12 }, // بالا-چپ
+    { x: 88, y: 14 }, // بالا-راست
+    { x: 85, y: 88 }, // پایین-راست
+    { x: 15, y: 86 }, // پایین-چپ
+  ]);
+  const [activeCornerIdx, setActiveCornerIdx] = useState<number | null>(null);
+  const [isAutoDetecting, setIsAutoDetecting] = useState(false);
+  const [isPerspectiveCropped, setIsPerspectiveCropped] = useState(false);
+  const cropContainerRef = useRef<HTMLDivElement>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3200);
+    setTimeout(() => setToastMessage(null), 3500);
   };
 
   const activeDoc = documents.find(d => d.id === activeDocId) || documents[0];
@@ -85,11 +106,34 @@ export default function App() {
     }
   };
 
+  // تابع آغاز فرایند پس از عکسبرداری یا گالری: بلافاصله هدایت به PerspectiveCropView
+  const handleStartCaptureFlow = (imageSrc: string, title: string) => {
+    setCapturedImage(imageSrc);
+    setCapturedTitle(title);
+    setRotationDegrees(0);
+    setIsPerspectiveCropped(false);
+    setCorners([
+      { x: 10, y: 12 },
+      { x: 90, y: 13 },
+      { x: 86, y: 88 },
+      { x: 13, y: 86 },
+    ]);
+    // هدایت مستقیم و فوری به کامپوننت PerspectiveCropView طبق منطق نویگیشن جدید
+    setCurrentScreen('crop');
+    showToast('عکس دریافت شد؛ هدایت بلافاصله به PerspectiveCropView جهت تراز ۴ گوشه');
+  };
+
   const handleCameraCapture = () => {
-    // باز کردن دوربین یا بارگذاری فایل واقعی در شبیه‌ساز
+    // باز کردن دوربین یا فایل منیجر در شبیه‌ساز
     if (fileInputRef.current) {
       fileInputRef.current.click();
     }
+  };
+
+  // شبیه‌سازی عکاسی مستقیم با دوربین در شبیه‌ساز جهت تست فوری جریان نویگیشن
+  const handleSimulateCameraCapture = () => {
+    const sampleImage = 'https://images.unsplash.com/photo-1586281380349-632531db7ed4?w=800&auto=format&fit=crop&q=80';
+    handleStartCaptureFlow(sampleImage, `سند دوربین - ${new Date().toLocaleDateString('fa-IR')}`);
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -98,24 +142,41 @@ export default function App() {
       const reader = new FileReader();
       reader.onload = (event) => {
         const result = event.target?.result as string;
-        setCustomImage(result);
-        const newId = `doc-${Date.now()}`;
-        const newDoc: DocumentItem = {
-          id: newId,
-          title: file.name.replace(/\.[^/.]+$/, "") || 'سند جدید دوربین',
-          datePersian: 'امروز',
-          filter: 'photocopy',
-          pageCount: 1,
-          imageSrc: result
-        };
-        setDocuments(prev => [newDoc, ...prev]);
-        setActiveDocId(newId);
-        setSelectedFilter('photocopy');
-        setCurrentScreen('preview');
-        showToast('تصویر سند دریافت و پردازش شد');
+        handleStartCaptureFlow(result, file.name.replace(/\.[^/.]+$/, "") || 'سند جدید دوربین');
       };
       reader.readAsDataURL(file);
     }
+  };
+
+  // انصراف از صفحه PerspectiveCropView و بازگشت به صفحه اصلی
+  const handleCancelCrop = () => {
+    setCapturedImage(null);
+    setCurrentScreen('home');
+    showToast('عملیات برش و تراز کادر لغو شد');
+  };
+
+  // تایید نهایی در صفحه PerspectiveCropView و ارسال متغیر وضعیت تصویر پردازش‌شده به صفحه نمایش نهایی
+  const handleConfirmCropAndNavigate = () => {
+    setIsPerspectiveCropped(true);
+    const finalProcessedImage = capturedImage || customImage || activeDoc.imageSrc;
+    setCustomImage(finalProcessedImage);
+
+    const newDocId = `doc-${Date.now()}`;
+    const newDoc: DocumentItem = {
+      id: newDocId,
+      title: capturedTitle || 'سند پردازش‌شده جدید',
+      datePersian: 'امروز',
+      filter: 'photocopy',
+      pageCount: 1,
+      imageSrc: finalProcessedImage
+    };
+    setDocuments(prev => [newDoc, ...prev]);
+    setActiveDocId(newDocId);
+    setSelectedFilter('photocopy');
+
+    // ارسال متغیر وضعیت تصویر پردازش‌شده به صفحه نمایش نهایی (Preview)
+    setCurrentScreen('preview');
+    showToast('تصویر پردازش و تراز شد و به صفحه نمایش نهایی (Preview) ارسال گردید');
   };
 
   const handleSaveFilter = () => {
@@ -125,6 +186,48 @@ export default function App() {
 
   const handleShare = () => {
     showToast('آماده‌سازی سند جهت اشتراک‌گذاری در پیام‌رسان‌ها...');
+  };
+
+  const handleAutoDetectCorners = () => {
+    setIsAutoDetecting(true);
+    setTimeout(() => {
+      // شبیه‌سازی نتایج دقیق EdgeDetectionEngine (Canny + Hysteresis)
+      setCorners([
+        { x: 8, y: 10 },
+        { x: 92, y: 11 },
+        { x: 90, y: 91 },
+        { x: 9, y: 90 }
+      ]);
+      setIsAutoDetecting(false);
+      showToast('تشخیص هوشمند لبه‌ها (Canny Edge Detection) اعمال شد');
+    }, 450);
+  };
+
+  const handleFullFrame = () => {
+    setCorners([
+      { x: 3, y: 3 },
+      { x: 97, y: 3 },
+      { x: 97, y: 97 },
+      { x: 3, y: 97 }
+    ]);
+    showToast('کادر به حالت تمام‌صفحه بازنشانی شد');
+  };
+
+  const handleRotate = () => {
+    setRotationDegrees(prev => (prev + 90) % 360);
+    showToast('چرخش ۹۰ درجه تصویر سند اعمال شد');
+  };
+
+  const handleCornerDrag = (clientX: number, clientY: number) => {
+    if (activeCornerIdx === null || !cropContainerRef.current) return;
+    const rect = cropContainerRef.current.getBoundingClientRect();
+    const x = Math.max(2, Math.min(98, ((clientX - rect.left) / rect.width) * 100));
+    const y = Math.max(2, Math.min(98, ((clientY - rect.top) / rect.height) * 100));
+    setCorners(prev => {
+      const next = [...prev];
+      next[activeCornerIdx] = { x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 };
+      return next;
+    });
   };
 
   const getFilterLabel = (f: FilterType) => {
@@ -266,6 +369,81 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 14`
     },
+    'NavGraph.kt': {
+      lang: 'kotlin',
+      desc: 'تعریف مسیرهای سه‌گانه Navigation: صفحه اصلی (Home)، صفحه برش پرسپکتیو (Crop) و پیش‌نمایش نهایی (Preview)',
+      code: `package ir.smartscanner.docscan.ui.navigation
+
+sealed class Screen(val route: String) {
+    object Home : Screen("home")
+    object Crop : Screen("crop") // بلافاصله پس از عکاسی یا انتخاب از گالری
+    object Preview : Screen("preview/{docId}") {
+        fun createRoute(docId: String) = "preview/$docId"
+    }
+}`
+    },
+    'MainActivity.kt': {
+      lang: 'kotlin',
+      desc: 'مدیریت جریان نویگیشن: هدایت فوری به PerspectiveCropView پس از دوربین/گالری و تحویل داده پردازش‌شده به PreviewScreen',
+      code: `// ۱. تعریف متغیرهای نگهداری موقت تصویر خام منبع
+var capturedRawBitmap by remember { mutableStateOf<Bitmap?>(null) }
+var capturedDocTitle by remember { mutableStateOf<String>("") }
+
+// ۲. متد بازگشایی آنی صفحه برش و پرسپکتیو به جای پیش‌نمایش ساده
+fun openCropScreenForNewCapture(bitmap: Bitmap, title: String) {
+    capturedRawBitmap = bitmap
+    capturedDocTitle = title
+    navController.navigate(Screen.Crop.route)
+}
+
+// ۳. پیکربندی گراف مسیرها با تفکیک وظایف
+NavHost(navController = navController, startDestination = Screen.Home.route) {
+    composable(Screen.Home.route) {
+        HomeScreen(
+            documents = documentList,
+            onOpenDocument = { docId -> navController.navigate(Screen.Preview.createRoute(docId)) },
+            onLaunchCamera = onLaunchCamera,
+            onLaunchGallery = { galleryLauncher.launch("image/*") }
+        )
+    }
+
+    // بلافاصله پس از عکس‌برداری، کاربر به صفحه PerspectiveCropView هدایت می‌شود
+    composable(Screen.Crop.route) {
+        val rawBitmap = capturedRawBitmap
+        if (rawBitmap != null) {
+            PerspectiveCropView(
+                initialBitmap = rawBitmap,
+                onConfirmCrop = { processedBitmap ->
+                    // پس از تأیید نهایی، متغیر وضعیت تصویر پردازش‌شده به صفحه نمایش نهایی ارسال می‌شود
+                    val newDocId = "new_\${System.currentTimeMillis()}"
+                    val newDoc = DocumentItem(
+                        id = newDocId,
+                        title = capturedDocTitle.ifEmpty { "سند جدید" },
+                        datePersian = DocStorageManager.getPersianDateNow(),
+                        filter = ScanFilter.PHOTOCOPY,
+                        pageCount = 1,
+                        bitmap = processedBitmap
+                    )
+                    pendingDocument = newDoc
+                    capturedRawBitmap = null
+                    navController.navigate(Screen.Preview.createRoute(newDocId)) {
+                        popUpTo(Screen.Home.route) { inclusive = false }
+                    }
+                },
+                onCancel = {
+                    capturedRawBitmap = null
+                    navController.popBackStack()
+                }
+            )
+        }
+    }
+
+    // صفحه نمایش نهایی و فیلترها
+    composable(Screen.Preview.route) { backStackEntry ->
+        PreviewScreen(document = ..., onBack = { navController.popBackStack() })
+    }
+}`
+    },
     'HomeScreen.kt': {
       lang: 'kotlin',
       desc: 'صفحه اصلی Jetpack Compose با اپ‌بار «اسکنر مدارک»، کارتهای مدارک اخیر و دو دکمه شناور دوربین و گالری',
@@ -345,6 +523,181 @@ fun PreviewScreen(
             )
         }
     ) { /* کادر نمایش تصویر مدرک در مرکز */ }
+}`
+    },
+    'EdgeDetectionEngine.kt': {
+      lang: 'kotlin',
+      desc: 'الگوریتم Canny Edge Detection با اولیه‌های android.graphics، تشخیص ۴ گوشه سند و TransformationManager با Matrix.setPolyToPoly برای تنظیم دستی',
+      code: `package ir.smartscanner.docscan.util
+
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Matrix
+import android.graphics.Paint
+import android.graphics.PointF
+import androidx.compose.ui.geometry.Offset
+import java.util.ArrayDeque
+import kotlin.math.*
+
+/**
+ * مدل داده ۴ گوشه سند اسکن‌شده جهت تراز و برش پرسپکتیو
+ */
+data class DocumentCorners(
+    val topLeft: PointF,
+    val topRight: PointF,
+    val bottomRight: PointF,
+    val bottomLeft: PointF
+) {
+    fun toCornerPoints(): CornerPoints = CornerPoints(
+        p0 = Offset(topLeft.x, topLeft.y),
+        p1 = Offset(topRight.x, topRight.y),
+        p2 = Offset(bottomRight.x, bottomRight.y),
+        p3 = Offset(bottomLeft.x, bottomLeft.y)
+    )
+
+    fun toPointsArray(): FloatArray = floatArrayOf(
+        topLeft.x, topLeft.y,
+        topRight.x, topRight.y,
+        bottomRight.x, bottomRight.y,
+        bottomLeft.x, bottomLeft.y
+    )
+
+    fun withCorner(index: Int, point: PointF): DocumentCorners {
+        return when (index) {
+            0 -> copy(topLeft = point)
+            1 -> copy(topRight = point)
+            2 -> copy(bottomRight = point)
+            3 -> copy(bottomLeft = point)
+            else -> this
+        }
+    }
+}
+
+/**
+ * موتور تشخیص هوشمند لبه‌ها با الگوریتم سبُک Canny Edge Detection
+ */
+object EdgeDetectionEngine {
+    fun detectCorners(bitmap: Bitmap, config: CannyConfig = CannyConfig()): DocumentCorners {
+        // ۱. مقیاس‌گذاری سریع متناسب
+        // ۲. استخراج روشنایی (Grayscale)
+        // ۳. فیلتر گوسی ۱ بعدی تفکیک‌پذیر (Separable 1D Gaussian Blur)
+        // ۴. محاسبه گرادیان سوبل (Sobel Magnitudes & Angles)
+        // ۵. سرکوب غیر بیشینه‌ها (Non-Maximum Suppression - NMS)
+        // ۶. آستانه‌گذاری دوگانه و هیسترزیس (Double Thresholding & Hysteresis)
+        // ۷. استخراج هندسی ۴ گوشه سند و بازگردانی به ابعاد اصلی
+        ...
+    }
+}
+
+/**
+ * کلاس مدیریت تبدیلات هندسی و تصحیح پرسپکتیو اسناد با استفاده از Matrix.setPolyToPoly
+ */
+class TransformationManager(private val useAntiAlias: Boolean = true) {
+    fun applyPerspectiveCorrection(source: Bitmap, corners: DocumentCorners): Bitmap {
+        val (dstWidth, dstHeight) = calculateOptimalDestinationDimensions(corners)
+        val srcPoints = corners.toPointsArray()
+        val dstPoints = floatArrayOf(
+            0f, 0f,
+            dstWidth.toFloat(), 0f,
+            dstWidth.toFloat(), dstHeight.toFloat(),
+            0f, dstHeight.toFloat()
+        )
+        return warpBitmap(source, srcPoints, dstPoints, dstWidth, dstHeight)
+    }
+
+    fun computePerspectiveMatrix(srcCorners: DocumentCorners, dstWidth: Float, dstHeight: Float): Matrix {
+        val matrix = Matrix()
+        matrix.setPolyToPoly(srcCorners.toPointsArray(), 0, floatArrayOf(0f, 0f, dstWidth, 0f, dstWidth, dstHeight, 0f, dstHeight), 0, 4)
+        return matrix
+    }
+
+    fun adjustCorner(corners: DocumentCorners, cornerIndex: Int, newPoint: PointF): DocumentCorners {
+        return corners.withCorner(cornerIndex, newPoint)
+    }
+
+    fun isConvexQuad(corners: DocumentCorners): Boolean { ... }
+}
+`
+    },
+    'PerspectiveCropEngine.kt': {
+      lang: 'kotlin',
+      desc: 'یکپارچه‌سازی EdgeDetectionEngine و TransformationManager جهت تنظیم دستی و برش پرسپکتیو با Matrix.setPolyToPoly',
+      code: `package ir.smartscanner.docscan.util
+
+import android.graphics.Bitmap
+import androidx.compose.ui.geometry.Offset
+
+object PerspectiveCropEngine {
+    val transformationManager = TransformationManager()
+
+    /**
+     * تشخیص هوشمند لبه‌ها با Canny Edge Detection
+     */
+    fun detectDocumentCorners(bitmap: Bitmap): CornerPoints {
+        return try {
+            val detected = EdgeDetectionEngine.detectCorners(bitmap)
+            detected.toCornerPoints()
+        } catch (e: Exception) {
+            getDefaultCorners(bitmap.width.toFloat(), bitmap.height.toFloat())
+        }
+    }
+
+    /**
+     * تنظیم دستی موقعیت یک گوشه سند توسط کاربر با TransformationManager
+     */
+    fun adjustCorner(corners: CornerPoints, index: Int, newOffset: Offset): CornerPoints {
+        return transformationManager.adjustCorner(corners, index, newOffset)
+    }
+
+    /**
+     * برش پرسپکتیو با تبدیل هندسی نیتیو setPolyToPoly
+     */
+    fun cropPerspective(source: Bitmap, corners: CornerPoints): Bitmap {
+        return transformationManager.applyPerspectiveCorrection(source, corners)
+    }
+
+    /**
+     * چرخش ۹۰ درجه تصویر جهت تراز اسناد
+     */
+    fun rotateBitmap(source: Bitmap, degrees: Float): Bitmap {
+        return transformationManager.rotateBitmap(source, degrees)
+    }
+}`
+    },
+    'PerspectiveCropView.kt': {
+      lang: 'kotlin',
+      desc: 'کامپوننت Jetpack Compose جهت تنظیم دستی ۴ گوشه با کشیدن دستگیره‌ها و اتصال مستقیم به TransformationManager',
+      code: `package ir.smartscanner.docscan.ui.components
+
+import android.graphics.Bitmap
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
+import ir.smartscanner.docscan.util.PerspectiveCropEngine
+
+@Composable
+fun PerspectiveCropView(
+    initialBitmap: Bitmap,
+    onConfirmCrop: (Bitmap) -> Unit,
+    onCancel: () -> Unit
+) {
+    var workingBitmap by remember { mutableStateOf(initialBitmap) }
+    var corners by remember(workingBitmap) {
+        mutableStateOf(PerspectiveCropEngine.detectDocumentCorners(workingBitmap))
+    }
+    var draggedCornerIndex by remember { mutableStateOf<Int?>(null) }
+
+    // تنظیم دستی موقعیت گوشه با مدیریت TransformationManager
+    // Canvas جهت رسم خطوط چهارضلعی و ۴ دستگیره تعاملی لمسی
+    // دکمه‌های بازنشانی کادر، تشخیص هوشمند لبه‌ها (Canny) و تأیید نهایی
 }`
     }
   };
@@ -534,12 +887,19 @@ fun PreviewScreen(
                       ))}
                     </div>
 
+                    {/* بنر راهنمای جریان نویگیشن */}
+                    <div className="bg-sky-50 border border-sky-200/80 rounded-2xl p-3 mx-4 mt-2 flex items-center gap-2.5 text-xs text-sky-900 shadow-xs">
+                      <Sparkles className="w-4 h-4 text-sky-600 shrink-0" />
+                      <span>جریان نویگیشن جدید: بلافاصله پس از عکس‌برداری یا انتخاب گالری، مستقیماً به <strong className="font-bold">PerspectiveCropView</strong> هدایت می‌شوید.</span>
+                    </div>
+
                     {/* دو دکمه شناور بزرگ (FAB) در پایین: دوربین و گالری */}
                     <div className="absolute bottom-4 inset-x-4 flex items-center gap-3 z-30">
                       {/* دکمه گالری */}
                       <button
                         onClick={handleCameraCapture}
                         className="flex-1 h-14 bg-teal-100 text-teal-900 hover:bg-teal-200 active:scale-95 rounded-2xl shadow-lg border border-teal-200/60 font-bold text-sm flex items-center justify-center gap-2 transition-all"
+                        title="انتخاب عکس و هدایت بلادرنگ به PerspectiveCropView"
                       >
                         <ImageIcon className="w-5 h-5 text-teal-800" />
                         <span>گالری</span>
@@ -547,11 +907,162 @@ fun PreviewScreen(
 
                       {/* دکمه دوربین */}
                       <button
-                        onClick={handleCameraCapture}
+                        onClick={handleSimulateCameraCapture}
                         className="flex-1 h-14 bg-sky-600 hover:bg-sky-700 active:scale-95 text-white rounded-2xl shadow-xl shadow-sky-600/30 font-bold text-sm flex items-center justify-center gap-2 transition-all"
+                        title="عکاسی و هدایت فوری به PerspectiveCropView"
                       >
                         <Camera className="w-5 h-5" />
                         <span>دوربین</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : currentScreen === 'crop' ? (
+                  /* نمایش تعاملی کامپوننت ۴ گوشه و تصحیح پرسپکتیو (PerspectiveCropView) - بلافاصله پس از عکسبرداری */
+                  <div 
+                    className="flex-1 flex flex-col bg-[#111827] text-white select-none relative overflow-hidden"
+                    onMouseMove={(e) => handleCornerDrag(e.clientX, e.clientY)}
+                    onMouseUp={() => setActiveCornerIdx(null)}
+                    onTouchMove={(e) => {
+                      if (e.touches[0]) {
+                        handleCornerDrag(e.touches[0].clientX, e.touches[0].clientY);
+                      }
+                    }}
+                    onTouchEnd={() => setActiveCornerIdx(null)}
+                  >
+                    {/* هدر بالای صفحه برش */}
+                    <div className="px-4 py-2.5 bg-[#1F2937] border-b border-gray-800 flex items-center justify-between shrink-0">
+                      <button
+                        onClick={handleCancelCrop}
+                        className="p-1 hover:bg-gray-700 rounded-lg text-white transition-all"
+                        title="انصراف و بازگشت به خانه"
+                      >
+                        <ArrowRight className="w-4 h-4" />
+                      </button>
+                      <div className="text-center">
+                        <span className="font-bold text-xs block">برش و تنظیم پرسپکتیو (PerspectiveCropView)</span>
+                        <span className="text-[9px] text-sky-400">هدایت بلادرنگ پس از عکس‌برداری / گالری</span>
+                      </div>
+                      <button
+                        onClick={handleRotate}
+                        className="p-1.5 hover:bg-gray-700 rounded-lg text-white transition-all"
+                        title="چرخش ۹۰ درجه"
+                      >
+                        <RotateCw className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    {/* کادر بوم تعاملی + ۴ دستگیره قابل جابجایی */}
+                    <div 
+                      ref={cropContainerRef}
+                      className="flex-1 m-2.5 relative rounded-2xl overflow-hidden bg-black/60 border border-gray-800 flex items-center justify-center cursor-crosshair"
+                    >
+                      {/* تصویر سند با چرخش ۹۰ درجه */}
+                      <div 
+                        className="w-full h-full p-4 flex items-center justify-center transition-transform duration-200"
+                        style={{ transform: `rotate(${rotationDegrees}deg)` }}
+                      >
+                        {capturedImage || customImage || activeDoc.imageSrc ? (
+                          <img 
+                            src={capturedImage || customImage || activeDoc.imageSrc} 
+                            alt="سند خام جهت برش" 
+                            className="max-h-full max-w-full object-contain pointer-events-none rounded shadow"
+                          />
+                        ) : (
+                          <div className="w-4/5 h-4/5 bg-amber-50 rounded-xl p-3 text-slate-800 flex flex-col justify-between border border-amber-200 pointer-events-none shadow-md">
+                            <div className="flex justify-between items-center text-[9px] border-b border-slate-300 pb-1 font-bold">
+                              <span>جمهوری اسلامی ایران</span>
+                              <span>سند شناسایی</span>
+                            </div>
+                            <div className="space-y-1.5 my-auto">
+                              <div className="h-2 bg-slate-300 rounded w-2/3" />
+                              <div className="h-1.5 bg-slate-200 rounded w-full" />
+                              <div className="h-1.5 bg-slate-200 rounded w-4/5" />
+                              <div className="h-1.5 bg-slate-200 rounded w-3/5" />
+                            </div>
+                            <div className="flex justify-between items-center text-[8px] border-t border-slate-300 pt-1">
+                              <span className="text-red-600 font-bold border border-red-500 rounded px-1">تأیید</span>
+                              <span>شماره سند: ۱۴۰۳</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* لایه SVG خطوط چندضلعی ۴ گوشه و اقطار فرضی */}
+                      <svg className="absolute inset-0 w-full h-full pointer-events-none z-10">
+                        {/* خطوط متقاطع اقطار */}
+                        <line 
+                          x1={`${corners[0].x}%`} y1={`${corners[0].y}%`} 
+                          x2={`${corners[2].x}%`} y2={`${corners[2].y}%`} 
+                          stroke="rgba(255,255,255,0.4)" 
+                          strokeDasharray="3,3" 
+                          strokeWidth="1.5" 
+                        />
+                        <line 
+                          x1={`${corners[1].x}%`} y1={`${corners[1].y}%`} 
+                          x2={`${corners[3].x}%`} y2={`${corners[3].y}%`} 
+                          stroke="rgba(255,255,255,0.4)" 
+                          strokeDasharray="3,3" 
+                          strokeWidth="1.5" 
+                        />
+                        {/* کادر ۴ ضلعی مرز سند */}
+                        <polygon 
+                          points={`${corners[0].x}%,${corners[0].y}% ${corners[1].x}%,${corners[1].y}% ${corners[2].x}%,${corners[2].y}% ${corners[3].x}%,${corners[3].y}%`}
+                          fill="rgba(14, 165, 233, 0.18)"
+                          stroke="#0284c7"
+                          strokeWidth="3"
+                        />
+                      </svg>
+
+                      {/* ۴ دستگیره لمسی گوشه‌ها */}
+                      {corners.map((corner, idx) => (
+                        <div
+                          key={idx}
+                          onMouseDown={() => setActiveCornerIdx(idx)}
+                          onTouchStart={() => setActiveCornerIdx(idx)}
+                          className={`absolute w-7 h-7 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-xl cursor-grab active:cursor-grabbing flex items-center justify-center z-20 transition-transform ${
+                            activeCornerIdx === idx ? 'scale-125 bg-sky-400 ring-4 ring-sky-400/40' : 'bg-sky-600 hover:scale-110'
+                          }`}
+                          style={{ left: `${corner.x}%`, top: `${corner.y}%` }}
+                        >
+                          <div className="w-1.5 h-1.5 bg-white rounded-full" />
+                        </div>
+                      ))}
+
+                      {/* وضعیت پردازش Canny Edge Detection */}
+                      {isAutoDetecting && (
+                        <div className="absolute inset-0 bg-sky-950/60 backdrop-blur-xs flex flex-col items-center justify-center gap-2 z-30">
+                          <div className="w-7 h-7 border-2 border-sky-400 border-t-transparent rounded-full animate-spin" />
+                          <span className="text-xs font-bold text-sky-200">الگوریتم Canny در حال تفکیک لبه‌ها...</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* دکمه‌های کمکی و دکمه اصلی تأیید پرسپکتیو */}
+                    <div className="bg-[#1F2937] p-3 space-y-2 border-t border-gray-800 shrink-0">
+                      <div className="flex gap-2">
+                        <button
+                          onClick={handleAutoDetectCorners}
+                          disabled={isAutoDetecting}
+                          className="flex-1 py-2 px-2.5 bg-gray-800 hover:bg-gray-700 text-sky-300 border border-gray-700 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 active:scale-95 transition-all"
+                        >
+                          <Wand2 className="w-3.5 h-3.5" />
+                          <span>تشخیص هوشمند (Canny)</span>
+                        </button>
+                        <button
+                          onClick={handleFullFrame}
+                          className="py-2 px-3 bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 rounded-xl text-xs font-bold flex items-center justify-center gap-1 active:scale-95 transition-all"
+                        >
+                          <Maximize2 className="w-3.5 h-3.5" />
+                          <span>کادر کامل</span>
+                        </button>
+                      </div>
+
+                      <button
+                        onClick={handleConfirmCropAndNavigate}
+                        className="w-full py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-lg shadow-sky-600/30 active:scale-95 transition-all"
+                      >
+                        <Check className="w-4 h-4" />
+                        <span>تأیید نهایی و ارسال به صفحه پیش‌نمایش</span>
                       </button>
                     </div>
                   </div>
@@ -594,7 +1105,9 @@ fun PreviewScreen(
                     {/* کادر نمایش تصویر مدرک در مرکز */}
                     <div className="flex-1 p-4 flex items-center justify-center overflow-hidden">
                       <div 
-                        className="w-full h-full max-h-[360px] rounded-2xl p-5 shadow-xl border border-slate-300 flex flex-col justify-between transition-all duration-300 relative overflow-hidden"
+                        className={`w-full h-full max-h-[360px] rounded-2xl p-5 shadow-xl border border-slate-300 flex flex-col justify-between transition-all duration-300 relative overflow-hidden ${
+                          isPerspectiveCropped ? 'ring-2 ring-emerald-400' : ''
+                        }`}
                         style={getFilterStyle(selectedFilter)}
                       >
                         {customImage || activeDoc.imageSrc ? (
@@ -653,64 +1166,88 @@ fun PreviewScreen(
                         <div className="absolute top-2 left-2 bg-black/60 text-white text-[10px] px-2 py-0.5 rounded-full backdrop-blur-sm">
                           فیلتر: {getFilterLabel(selectedFilter)}
                         </div>
+
+                        {/* نشانگر تراز بودن پرسپکتیو */}
+                        {isPerspectiveCropped && (
+                          <div className="absolute bottom-2 left-2 bg-emerald-600/90 text-white text-[10px] px-2 py-0.5 rounded-full backdrop-blur-sm flex items-center gap-1">
+                            <Check className="w-3 h-3" />
+                            <span>تراز با Matrix.setPolyToPoly</span>
+                          </div>
+                        )}
                       </div>
                     </div>
 
-                    {/* نوار ابزار پایین با ۴ حالت فیلتر: «فتوکپی»، «سیاه و سفید»، «رنگی شفاف» و «اصلی» */}
-                    <div className="bg-white px-4 py-3 border-t border-slate-200 shadow-lg rounded-t-3xl shrink-0">
-                      <div className="text-[11px] font-bold text-slate-500 mb-2">انتخاب فیلتر مدرک:</div>
-                      <div className="grid grid-cols-4 gap-2">
-                        {/* ۱. فتوکپی */}
+                    {/* نوار ابزار پایین با دکمه برش و ۴ حالت فیلتر */}
+                    <div className="bg-white px-4 py-3 border-t border-slate-200 shadow-lg rounded-t-3xl shrink-0 space-y-2.5">
+                      {/* ردیف دکمه برش ۴ گوشه و پرسپکتیو */}
+                      <div className="flex items-center justify-between pb-1">
+                        <span className="text-[11px] font-bold text-slate-500">پردازش و تراز کادر:</span>
                         <button
-                          onClick={() => setSelectedFilter('photocopy')}
-                          className={`p-2 rounded-xl flex flex-col items-center gap-1 transition-all border ${
-                            selectedFilter === 'photocopy'
-                              ? 'bg-sky-50 border-sky-500 text-sky-700 shadow-sm'
-                              : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
-                          }`}
+                          onClick={() => setCurrentScreen('crop')}
+                          className="bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200/80 px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 active:scale-95 transition-all"
+                          title="بازگشت به صفحه PerspectiveCropView جهت ویرایش مجدد گوشه‌ها"
                         >
-                          <Printer className="w-4 h-4" />
-                          <span className="text-[10px] font-bold">فتوکپی</span>
+                          <Crop className="w-3.5 h-3.5 text-sky-600" />
+                          <span>تنظیم در PerspectiveCropView</span>
                         </button>
+                      </div>
 
-                        {/* ۲. سیاه و سفید */}
-                        <button
-                          onClick={() => setSelectedFilter('bw')}
-                          className={`p-2 rounded-xl flex flex-col items-center gap-1 transition-all border ${
-                            selectedFilter === 'bw'
-                              ? 'bg-sky-50 border-sky-500 text-sky-700 shadow-sm'
-                              : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
-                          }`}
-                        >
-                          <Contrast className="w-4 h-4" />
-                          <span className="text-[10px] font-bold">سیاه و سفید</span>
-                        </button>
+                      {/* گزینه‌های فیلتر سند */}
+                      <div>
+                        <div className="text-[11px] font-bold text-slate-500 mb-1.5">انتخاب فیلتر مدرک:</div>
+                        <div className="grid grid-cols-4 gap-2">
+                          {/* ۱. فتوکپی */}
+                          <button
+                            onClick={() => setSelectedFilter('photocopy')}
+                            className={`p-2 rounded-xl flex flex-col items-center gap-1 transition-all border ${
+                              selectedFilter === 'photocopy'
+                                ? 'bg-sky-50 border-sky-500 text-sky-700 shadow-sm'
+                                : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                            }`}
+                          >
+                            <Printer className="w-4 h-4" />
+                            <span className="text-[10px] font-bold">فتوکپی</span>
+                          </button>
 
-                        {/* ۳. رنگی شفاف */}
-                        <button
-                          onClick={() => setSelectedFilter('color')}
-                          className={`p-2 rounded-xl flex flex-col items-center gap-1 transition-all border ${
-                            selectedFilter === 'color'
-                              ? 'bg-sky-50 border-sky-500 text-sky-700 shadow-sm'
-                              : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
-                          }`}
-                        >
-                          <Sparkles className="w-4 h-4" />
-                          <span className="text-[10px] font-bold">رنگی شفاف</span>
-                        </button>
+                          {/* ۲. سیاه و سفید */}
+                          <button
+                            onClick={() => setSelectedFilter('bw')}
+                            className={`p-2 rounded-xl flex flex-col items-center gap-1 transition-all border ${
+                              selectedFilter === 'bw'
+                                ? 'bg-sky-50 border-sky-500 text-sky-700 shadow-sm'
+                                : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                            }`}
+                          >
+                            <Contrast className="w-4 h-4" />
+                            <span className="text-[10px] font-bold">سیاه و سفید</span>
+                          </button>
 
-                        {/* ۴. اصلی */}
-                        <button
-                          onClick={() => setSelectedFilter('original')}
-                          className={`p-2 rounded-xl flex flex-col items-center gap-1 transition-all border ${
-                            selectedFilter === 'original'
-                              ? 'bg-sky-50 border-sky-500 text-sky-700 shadow-sm'
-                              : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
-                          }`}
-                        >
-                          <Layers className="w-4 h-4" />
-                          <span className="text-[10px] font-bold">اصلی</span>
-                        </button>
+                          {/* ۳. رنگی شفاف */}
+                          <button
+                            onClick={() => setSelectedFilter('color')}
+                            className={`p-2 rounded-xl flex flex-col items-center gap-1 transition-all border ${
+                              selectedFilter === 'color'
+                                ? 'bg-sky-50 border-sky-500 text-sky-700 shadow-sm'
+                                : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                            }`}
+                          >
+                            <Sparkles className="w-4 h-4" />
+                            <span className="text-[10px] font-bold">رنگی شفاف</span>
+                          </button>
+
+                          {/* ۴. اصلی */}
+                          <button
+                            onClick={() => setSelectedFilter('original')}
+                            className={`p-2 rounded-xl flex flex-col items-center gap-1 transition-all border ${
+                              selectedFilter === 'original'
+                                ? 'bg-sky-50 border-sky-500 text-sky-700 shadow-sm'
+                                : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                            }`}
+                          >
+                            <Layers className="w-4 h-4" />
+                            <span className="text-[10px] font-bold">اصلی</span>
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
