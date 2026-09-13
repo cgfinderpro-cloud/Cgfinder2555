@@ -63,14 +63,14 @@ data class DocumentCorners(
  * تنظیمات بهینه‌سازی الگوریتم Canny Edge Detection
  */
 data class CannyConfig(
-    val sampleWidth: Int = 260,
-    val lowThresholdRatio: Float = 0.10f,
-    val highThresholdRatio: Float = 0.25f,
+    val sampleWidth: Int = 300,
+    val lowThresholdRatio: Float = 0.12f,
+    val highThresholdRatio: Float = 0.30f,
     val borderMarginRatio: Float = 0.035f
 )
 
 /**
- * موتور تشخیص هوشمند لبه‌ها با استفاده از الگوریتم سبک و سریع Canny Edge Detection
+ * موتور تشخیص هوشمند لبه‌ها با استفاده از الگوریتم سبک و سریع Canny Edge Detection و Convex Hull
  * کاملاً نیتیو بدون وابستگی‌های سنگین خارجی، با بهره‌گیری از اولیه‌های گرافیکی android.graphics
  */
 object EdgeDetectionEngine {
@@ -91,9 +91,9 @@ object EdgeDetectionEngine {
 
         try {
             // ۱. مقیاس‌گذاری متناسب جهت پردازش سریع و روان روی دستگاه‌های موبایل
-            val targetW = config.sampleWidth.coerceIn(120, 600)
+            val targetW = config.sampleWidth.coerceIn(160, 600)
             val aspectRatio = origHeight / origWidth
-            val targetH = (targetW * aspectRatio).roundToInt().coerceIn(120, 800)
+            val targetH = (targetW * aspectRatio).roundToInt().coerceIn(160, 800)
 
             val scaledBitmap = Bitmap.createScaledBitmap(bitmap, targetW, targetH, true)
 
@@ -101,8 +101,9 @@ object EdgeDetectionEngine {
             val grayscale = extractGrayscale(scaledBitmap, targetW, targetH)
             scaledBitmap.recycle()
 
-            // ۳. فیلتر هموارسازی گوسی تفکیک‌پذیر (Separable 1D Gaussian Blur) جهت حذف نویز
-            val blurred = applySeparableGaussianBlur(grayscale, targetW, targetH)
+            // ۳. فیلتر هموارسازی گوسی دو مرحله‌ای جهت محو کردن کامل متون ریز و برجسته‌سازی مرز کاغذ
+            val blurredPass1 = applySeparableGaussianBlur(grayscale, targetW, targetH)
+            val blurred = applySeparableGaussianBlur(blurredPass1, targetW, targetH)
 
             // ۴. محاسبه شیب روشنایی با عملگر سوبل (Sobel Gradient Magnitudes & Angles)
             val (magnitudes, angles) = computeSobelGradients(blurred, targetW, targetH)
@@ -113,7 +114,7 @@ object EdgeDetectionEngine {
             // ۶. آستانه‌گذاری دوگانه و اتصال هیسترزیس (Double Thresholding & Hysteresis Tracking)
             val edgeMask = applyHysteresis(nmsEdges, targetW, targetH, config)
 
-            // ۷. استخراج هندسی ۴ گوشه سند و نگاشت به ابعاد واقعی تصویر
+            // ۷. استخراج هندسی ۴ گوشه سند با Convex Hull و نگاشت به ابعاد واقعی تصویر
             val detected = findDocumentQuadCorners(
                 edgeMask = edgeMask,
                 width = targetW,
@@ -388,7 +389,8 @@ object EdgeDetectionEngine {
     }
 
     /**
-     * استخراج موقعیت ۴ گوشه سند از روی نقاط لبه فعال
+     * استخراج موقعیت ۴ گوشه سند با استفاده از پوش محدب (Convex Hull) و بیشینه‌سازی اکسترمم‌های ۴ ربع
+     * این متد متون ریز و نویزهای درون صفحه را نادیده گرفته و مرز اصلی کاغذ را پیدا می‌کند
      */
     private fun findDocumentQuadCorners(
         edgeMask: BooleanArray,
@@ -401,65 +403,124 @@ object EdgeDetectionEngine {
         val marginX = (width * borderMarginRatio).roundToInt().coerceAtLeast(2)
         val marginY = (height * borderMarginRatio).roundToInt().coerceAtLeast(2)
 
-        val edgePoints = ArrayList<PointF>(width * 4)
+        val rawPoints = ArrayList<PointF>(width * 2)
 
+        // ۱. فیلتر همسایگی و حذف نویزهای تک‌پیکسلی پراکنده
         for (y in marginY until (height - marginY)) {
             val offset = y * width
             for (x in marginX until (width - marginX)) {
                 if (edgeMask[offset + x]) {
-                    edgePoints.add(PointF(x.toFloat(), y.toFloat()))
+                    // بررسی اتصال به حداقل ۱ پیکسل لبه دیگر در همسایگی ۳x۳
+                    var neighborCount = 0
+                    for (dy in -1..1) {
+                        for (dx in -1..1) {
+                            if (dx == 0 && dy == 0) continue
+                            val ny = y + dy
+                            val nx = x + dx
+                            if (nx in 0 until width && ny in 0 until height) {
+                                if (edgeMask[ny * width + nx]) {
+                                    neighborCount++
+                                }
+                            }
+                        }
+                    }
+                    if (neighborCount >= 1) {
+                        rawPoints.add(PointF(x.toFloat(), y.toFloat()))
+                    }
                 }
             }
         }
 
-        if (edgePoints.size < 40) {
+        if (rawPoints.size < 30) {
             return null
         }
 
-        // یافتن نامزدهای ۴ گوشه از طریق برون‌یابی اقطار صفحه:
-        // Top-Left: حداقل (x + y)
-        // Bottom-Right: حداکثر (x + y)
-        // Top-Right: حداکثر (x - y)
-        // Bottom-Left: حداقل (x - y)
-        var minSum = Float.MAX_VALUE
-        var maxSum = -Float.MAX_VALUE
-        var minDiff = Float.MAX_VALUE
-        var maxDiff = -Float.MAX_VALUE
+        // زیرنمونه‌گیری متوازن جهت بهینه‌سازی سرعت محاسبات Convex Hull
+        val sampledPoints = if (rawPoints.size > 1000) {
+            val step = (rawPoints.size / 500).coerceAtLeast(2)
+            rawPoints.filterIndexed { index, _ -> index % step == 0 }
+        } else {
+            rawPoints
+        }
 
-        var bestTL = edgePoints[0]
-        var bestBR = edgePoints[0]
-        var bestTR = edgePoints[0]
-        var bestBL = edgePoints[0]
+        // ۲. محاسبه پوش محدب بیرونی (Convex Hull) جهت حذف قطعی متون و خطوط درون صفحه
+        val hull = computeConvexHull(sampledPoints)
+        if (hull.size < 4) {
+            return null
+        }
 
-        for (p in edgePoints) {
-            val sum = p.x + p.y
-            val diff = p.x - p.y
+        // ۳. محاسبه مرکز ثقل (Centroid) پوش محدب
+        var sumX = 0f
+        var sumY = 0f
+        for (p in hull) {
+            sumX += p.x
+            sumY += p.y
+        }
+        val cx = sumX / hull.size
+        val cy = sumY / hull.size
 
-            if (sum < minSum) {
-                minSum = sum
-                bestTL = p
+        // ۴. استخراج ۴ گوشه واقعی سند از رئوس پوش محدب بر اساس بیشینه‌سازی فاصله در ۴ ربع
+        var bestTL: PointF? = null
+        var bestTR: PointF? = null
+        var bestBR: PointF? = null
+        var bestBL: PointF? = null
+
+        var maxScoreTL = -Float.MAX_VALUE
+        var maxScoreTR = -Float.MAX_VALUE
+        var maxScoreBR = -Float.MAX_VALUE
+        var maxScoreBL = -Float.MAX_VALUE
+
+        val qSlackX = width * 0.15f
+        val qSlackY = height * 0.15f
+
+        for (p in hull) {
+            val dx = p.x - cx
+            val dy = p.y - cy
+
+            val scoreTL = -dx - dy
+            val scoreTR = dx - dy
+            val scoreBR = dx + dy
+            val scoreBL = -dx + dy
+
+            if (p.x <= cx + qSlackX && p.y <= cy + qSlackY) {
+                if (scoreTL > maxScoreTL) {
+                    maxScoreTL = scoreTL
+                    bestTL = p
+                }
             }
-            if (sum > maxSum) {
-                maxSum = sum
-                bestBR = p
+            if (p.x >= cx - qSlackX && p.y <= cy + qSlackY) {
+                if (scoreTR > maxScoreTR) {
+                    maxScoreTR = scoreTR
+                    bestTR = p
+                }
             }
-            if (diff > maxDiff) {
-                maxDiff = diff
-                bestTR = p
+            if (p.x >= cx - qSlackX && p.y >= cy - qSlackY) {
+                if (scoreBR > maxScoreBR) {
+                    maxScoreBR = scoreBR
+                    bestBR = p
+                }
             }
-            if (diff < minDiff) {
-                minDiff = diff
-                bestBL = p
+            if (p.x <= cx + qSlackX && p.y >= cy - qSlackY) {
+                if (scoreBL > maxScoreBL) {
+                    maxScoreBL = scoreBL
+                    bestBL = p
+                }
             }
         }
+
+        // استفاده از اکسترمم‌های قطعی پوش محدب در صورت خالی بودن هر یک از ربع‌ها
+        val finalTL = bestTL ?: hull.minByOrNull { it.x + it.y } ?: return null
+        val finalTR = bestTR ?: hull.maxByOrNull { it.x - it.y } ?: return null
+        val finalBR = bestBR ?: hull.maxByOrNull { it.x + it.y } ?: return null
+        val finalBL = bestBL ?: hull.minByOrNull { it.x - it.y } ?: return null
 
         val scaleX = origWidth / width.toFloat()
         val scaleY = origHeight / height.toFloat()
 
-        val pTL = PointF(bestTL.x * scaleX, bestTL.y * scaleY)
-        val pTR = PointF(bestTR.x * scaleX, bestTR.y * scaleY)
-        val pBR = PointF(bestBR.x * scaleX, bestBR.y * scaleY)
-        val pBL = PointF(bestBL.x * scaleX, bestBL.y * scaleY)
+        val pTL = PointF(finalTL.x * scaleX, finalTL.y * scaleY)
+        val pTR = PointF(finalTR.x * scaleX, finalTR.y * scaleY)
+        val pBR = PointF(finalBR.x * scaleX, finalBR.y * scaleY)
+        val pBL = PointF(finalBL.x * scaleX, finalBL.y * scaleY)
 
         val candidateCorners = DocumentCorners(pTL, pTR, pBR, pBL)
 
@@ -469,14 +530,49 @@ object EdgeDetectionEngine {
             return null
         }
 
-        // اعتبارسنجی حداقل عرض و ارتفاع سند (حداقل ۲۰ درصد تصویر)
+        // اعتبارسنجی حداقل ابعاد سند (حداقل ۲۲ درصد کادر تصویر)
         val topW = hypot(pTR.x - pTL.x, pTR.y - pTL.y)
         val leftH = hypot(pBL.x - pTL.x, pBL.y - pTL.y)
-        if (topW < origWidth * 0.20f || leftH < origHeight * 0.20f) {
+        if (topW < origWidth * 0.22f || leftH < origHeight * 0.22f) {
             return null
         }
 
         return candidateCorners
+    }
+
+    /**
+     * پیاده‌سازی الگوریتم Andrew's Monotone Chain برای استخراج سریع Convex Hull با پیچیدگی O(N log N)
+     */
+    private fun computeConvexHull(points: List<PointF>): List<PointF> {
+        val n = points.size
+        if (n <= 4) return points
+
+        val sorted = points.sortedWith(compareBy({ it.x }, { it.y }))
+
+        fun crossProduct(o: PointF, a: PointF, b: PointF): Float {
+            return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x)
+        }
+
+        val lower = ArrayList<PointF>()
+        for (p in sorted) {
+            while (lower.size >= 2 && crossProduct(lower[lower.size - 2], lower[lower.size - 1], p) <= 0) {
+                lower.removeAt(lower.size - 1)
+            }
+            lower.add(p)
+        }
+
+        val upper = ArrayList<PointF>()
+        for (i in sorted.indices.reversed()) {
+            val p = sorted[i]
+            while (upper.size >= 2 && crossProduct(upper[upper.size - 2], upper[upper.size - 1], p) <= 0) {
+                upper.removeAt(upper.size - 1)
+            }
+            upper.add(p)
+        }
+
+        if (lower.isNotEmpty()) lower.removeAt(lower.size - 1)
+        if (upper.isNotEmpty()) upper.removeAt(upper.size - 1)
+        return lower + upper
     }
 }
 

@@ -215,19 +215,34 @@ fun PerspectiveCropView(
                     )
                 }
 
-                // ۳. لایه لمسی و رهگیری کشیدن دستگیره‌های ۴ گوشه
+                val currentCorners by rememberUpdatedState(corners)
+                val currentScaleX by rememberUpdatedState(scaleX)
+                val currentScaleY by rememberUpdatedState(scaleY)
+                val currentOffsetX by rememberUpdatedState(offsetX)
+                val currentOffsetY by rememberUpdatedState(offsetY)
+                val currentBw by rememberUpdatedState(bW)
+                val currentBh by rememberUpdatedState(bH)
+
+                // ۳. لایه لمسی و رهگیری کشیدن دستگیره‌های ۴ گوشه با مودیفایر پایدار
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .pointerInput(corners, displayedW, displayedH) {
+                        .pointerInput(displayedW, displayedH) {
                             detectDragGestures(
                                 onDragStart = { startPos ->
-                                    val touchThreshold = 55.dp.toPx()
+                                    val touchThreshold = 60.dp.toPx()
+                                    val c = currentCorners
+                                    val pts = listOf(
+                                        Offset(c.p0.x * currentScaleX + currentOffsetX, c.p0.y * currentScaleY + currentOffsetY),
+                                        Offset(c.p1.x * currentScaleX + currentOffsetX, c.p1.y * currentScaleY + currentOffsetY),
+                                        Offset(c.p2.x * currentScaleX + currentOffsetX, c.p2.y * currentScaleY + currentOffsetY),
+                                        Offset(c.p3.x * currentScaleX + currentOffsetX, c.p3.y * currentScaleY + currentOffsetY)
+                                    )
                                     // یافتن نزدیک‌ترین دستگیره به انگشت کاربر
                                     var closestIndex: Int? = null
                                     var minDistance = Float.MAX_VALUE
 
-                                    screenPoints.forEachIndexed { index, pt ->
+                                    pts.forEachIndexed { index, pt ->
                                         val dist = hypot(pt.x - startPos.x, pt.y - startPos.y)
                                         if (dist < touchThreshold && dist < minDistance) {
                                             minDistance = dist
@@ -242,14 +257,14 @@ fun PerspectiveCropView(
                                 onDragCancel = {
                                     activeHandleIndex = null
                                 },
-                                onDrag = { change, dragAmount ->
+                                onDrag = { change, _ ->
                                     change.consume()
                                     val index = activeHandleIndex ?: return@detectDragGestures
-                                    val currentScreenPt = screenPoints[index]
-                                    val newScreenPt = currentScreenPt + dragAmount
-                                    val newBmpPt = toBitmap(newScreenPt)
-                                    // اعمال تنظیم دستی گوشه با TransformationManager
-                                    corners = PerspectiveCropEngine.adjustCorner(corners, index, newBmpPt)
+                                    // نگاشت مستقیم موقعیت اشاره‌گر به ابعاد واقعی Bitmap
+                                    val bx = ((change.position.x - currentOffsetX) / currentScaleX).coerceIn(0f, currentBw)
+                                    val by = ((change.position.y - currentOffsetY) / currentScaleY).coerceIn(0f, currentBh)
+                                    // اعمال تنظیم دستی گوشه با TransformationManager بدون ریستارت شدن Gesture
+                                    corners = PerspectiveCropEngine.adjustCorner(currentCorners, index, Offset(bx, by))
                                 }
                             )
                         }
@@ -257,7 +272,7 @@ fun PerspectiveCropView(
                     // ۴. المان‌های بصری دستگیره‌ها در محل ۴ گوشه
                     screenPoints.forEachIndexed { index, pt ->
                         val isActive = activeHandleIndex == index
-                        val handleRadius = if (isActive) 18.dp else 14.dp
+                        val handleRadius = if (isActive) 20.dp else 15.dp
 
                         Box(
                             modifier = Modifier
@@ -268,14 +283,14 @@ fun PerspectiveCropView(
                                 .size(handleRadius * 2)
                                 .clip(CircleShape)
                                 .background(Color.White)
-                                .padding(3.dp)
+                                .padding(if (isActive) 2.dp else 3.dp)
                                 .clip(CircleShape)
                                 .background(if (isActive) PrimaryBlueDark else PrimaryBlue),
                             contentAlignment = Alignment.Center
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(6.dp)
+                                    .size(if (isActive) 8.dp else 6.dp)
                                     .clip(CircleShape)
                                     .background(Color.White)
                             )
