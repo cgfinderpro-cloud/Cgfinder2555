@@ -247,12 +247,12 @@ export default function App() {
     switch (f) {
       case 'photocopy':
         return {
-          filter: 'grayscale(100%) contrast(240%) brightness(105%)',
+          filter: 'grayscale(100%) contrast(155%) brightness(108%)',
           backgroundColor: '#FFFFFF',
         };
       case 'bw':
         return {
-          filter: 'grayscale(100%) contrast(120%) brightness(95%)',
+          filter: 'grayscale(100%) contrast(125%) brightness(98%)',
           backgroundColor: '#F8FAFC',
         };
       case 'color':
@@ -550,6 +550,37 @@ fun PreviewScreen(
             )
         }
     ) { /* کادر نمایش تصویر مدرک در مرکز */ }
+}`
+    },
+    'DocFilterEngine.kt': {
+      lang: 'kotlin',
+      desc: 'موتور فیلتر فتوکپی با الگوریتم Flatfield Background Normalization، تصحیح سایه‌های ناهمگون و نگاشت پیوسته Softstep Sigmoid',
+      code: `package ir.smartscanner.docscan.util
+
+import android.graphics.*
+import kotlin.math.*
+
+/**
+ * فیلتر فتوکپی استودیویی مشابه CamScanner و Adobe Scan
+ */
+fun applyPhotocopy(source: Bitmap): Bitmap {
+    val width = source.width
+    val height = source.height
+    val pixels = IntArray(width * height)
+    source.getPixels(pixels, 0, width, 0, 0, width, height)
+
+    // ۱. تخمین ۲ بعدی روشنایی پس‌زمینه در شبکه بلاک‌های محلی (Adaptive Illumination)
+    val blockSize = (maxOf(width, height) / 24).coerceIn(24, 64)
+    val gridX = (width + blockSize - 1) / blockSize
+    val gridY = (height + blockSize - 1) / blockSize
+    // محاسبه صدک ۸۵ام روشنایی و فیلتر هموارسازی ۳x۳...
+
+    // ۲. فیلتر شارپ متن و نگاشت پیوسته تونال (Soft S-Curve)
+    // نسبت پیکسل به پس‌زمینه کاغذ: ratio = sharpLum / bgLum
+    // - اگر ratio >= 0.88: کاغذ سفید خالص (حذف کامل سایه‌ها و زردی کاغذ)
+    // - اگر ratio <= 0.42: خطوط مشکی عمیق و پررنگ بدون شکستگی
+    // - بینابین: نگاشت نرم 3t^2 - 2t^3 برای حفظ کامل آنتی‌آلیاسینگ لبه حروف فارسی
+    return output
 }`
     },
     'EdgeDetectionEngine.kt': {
@@ -1194,18 +1225,22 @@ fun PerspectiveCropView(
                             </div>
 
                             {/* خطوط شبیه‌سازی متن مدرک اسکن‌شده با کیفیت و کنتراست بالا */}
-                            <div className="space-y-2.5 py-2">
-                              <div className="h-2 bg-slate-800 rounded-xs w-2/5" />
-                              <div className="space-y-1.5">
-                                <div className="h-1.5 bg-slate-700 rounded-xs w-full" />
-                                <div className="h-1.5 bg-slate-700 rounded-xs w-11/12" />
-                                <div className="h-1.5 bg-slate-700 rounded-xs w-5/6" />
-                              </div>
-                              <div className="h-2 bg-slate-800 rounded-xs w-1/3 pt-1" />
-                              <div className="space-y-1.5">
-                                <div className="h-1.5 bg-slate-700 rounded-xs w-full" />
-                                <div className="h-1.5 bg-slate-700 rounded-xs w-4/5" />
-                              </div>
+                            <div className="space-y-1.5 py-1 text-right">
+                              <p className="text-[10px] font-bold text-slate-900 border-b border-slate-200 pb-1">
+                                شماره پرونده: ۱۴۰۳/۷۸۹۲/الف - کد ملی: ۰۰۸۳۹۲۸۱۷۲
+                              </p>
+                              <p className="text-[9.5px] leading-relaxed text-slate-800 font-medium">
+                                بدین‌وسیله گواهی می‌شود مدارک هویتی پیوست پس از بررسی مراجع ذی‌صلاح، احراز اصالت گردید.
+                              </p>
+                              <p className="text-[9.5px] leading-relaxed text-slate-800 font-medium">
+                                محل صدور: تهران، اداره ثبت اسناد و املاک مرکزی - شناسه رهگیری: ۹۲۸۳۷۴۶۱
+                              </p>
+                              <p className="text-[9px] leading-relaxed text-slate-700">
+                                کلیه مفاد و مندرجات این گواهی رسمی دارای اعتبار قانونی بوده و در کلیه مراجع اداری نافذ است.
+                              </p>
+                              <p className="text-[8.5px] text-slate-600 pt-0.5">
+                                جهت استعلام اصالت دیجیتال سند به سامانه الکترونیک خدمات اسناد رسمی مراجعه فرمایید.
+                              </p>
                             </div>
 
                             {/* مهر و امضای رسمی پایین سند */}

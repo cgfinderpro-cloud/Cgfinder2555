@@ -40,58 +40,155 @@ object DocFilterEngine {
     }
 
     /**
-     * فیلتر فتوکپی: افزایش شدید کنتراست و حذف سایه‌های خاکستری پس‌زمینه
-     * پس‌زمینه کاغذ کاملاً سفید و خطوط و متن‌ها مشکی پررنگ می‌شوند (High-Contrast Binarization)
+     * فیلتر فتوکپی با کیفیت فوق‌العاده بالا (Studio-Grade Document Photocopy):
+     * ۱. حذف ناهمگونی‌های نوری و سایه‌های دست/محیط با تصحیح سطح پس‌زمینه (Adaptive Flatfield Illumination)
+     * ۲. حفظ لبه‌های نرم حروف و جلوگیری از پیکسلی یا شکسته شدن خطوط با نگاشت تونال پیوسته (Softstep Sigmoid)
+     * ۳. تقویت وضوح متن و خوانایی خطوط فارسی با فیلتر شارپ هوشمند بدون افزایش نویز
      */
     fun applyPhotocopy(source: Bitmap): Bitmap {
         val width = source.width
         val height = source.height
         val output = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
 
-        // ۱. ابتدا تبدیل به سیاه و سفید با کنتراست بهینه
-        val canvas = Canvas(output)
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        val pixels = IntArray(width * height)
+        source.getPixels(pixels, 0, width, 0, 0, width, height)
 
-        // ماتریس تبدیل به سطح خاکستری با حذف سایه‌های تیره و روشن‌سازی زمینه
-        val matrix = ColorMatrix().apply {
-            // ماتریس خاکستری استاندارد Luminance
-            setSaturation(0f)
+        // اندازه بلاک‌های تخمین نور پس‌زمینه کاغذ متناسب با رزولوشن سند
+        val blockSize = (maxOf(width, height) / 24).coerceIn(24, 64)
+        val gridX = (width + blockSize - 1) / blockSize
+        val gridY = (height + blockSize - 1) / blockSize
+
+        // محاسبه سطح روشنایی پس‌زمینه کاغذ در هر بلاک (چارک ۸۵ام روشنایی جهت حذف سایه‌ها)
+        val bgRaw = FloatArray(gridX * gridY)
+        val hist = IntArray(32)
+
+        for (gy in 0 until gridY) {
+            val y0 = gy * blockSize
+            val y1 = minOf(y0 + blockSize, height)
+            for (gx in 0 until gridX) {
+                val x0 = gx * blockSize
+                val x1 = minOf(x0 + blockSize, width)
+
+                hist.fill(0)
+                var sampledCount = 0
+
+                val stepY = maxOf(1, (y1 - y0) / 8)
+                val stepX = maxOf(1, (x1 - x0) / 8)
+
+                for (y in y0 until y1 step stepY) {
+                    val rowOffset = y * width
+                    for (x in x0 until x1 step stepX) {
+                        val c = pixels[rowOffset + x]
+                        val r = (c shr 16) and 0xFF
+                        val g = (c shr 8) and 0xFF
+                        val b = c and 0xFF
+                        val lum = (0.299f * r + 0.587f * g + 0.114f * b).toInt()
+                        hist[(lum shr 3).coerceIn(0, 31)]++
+                        sampledCount++
+                    }
+                }
+
+                // یافتن تقریب صدک ۸۵ام روشنایی در بلاک
+                val targetCount = (sampledCount * 0.85f).toInt()
+                var accumulated = 0
+                var estimatedBg = 210f
+                for (b in 0..31) {
+                    accumulated += hist[b]
+                    if (accumulated >= targetCount) {
+                        estimatedBg = (b * 8 + 4).toFloat()
+                        break
+                    }
+                }
+
+                // کف روشنایی برای جلوگیری از به اشتباه افتادن در کادرهای تیره یا حواشی
+                bgRaw[gy * gridX + gx] = estimatedBg.coerceIn(145f, 255f)
+            }
         }
 
-        // اعمال کنتراست شدید (High Contrast)
-        val contrast = 2.4f
-        val brightness = -40f
-        val contrastMatrix = ColorMatrix(floatArrayOf(
-            contrast, 0f, 0f, 0f, brightness,
-            0f, contrast, 0f, 0f, brightness,
-            0f, 0f, contrast, 0f, brightness,
-            0f, 0f, 0f, 1f, 0f
-        ))
-        matrix.postConcat(contrastMatrix)
+        // هموارسازی ملایم نقشه پس‌زمینه جهت حذف مرزهای ناگهانی بین بلاک‌ها (3x3 Box Blur)
+        val bgSmooth = FloatArray(gridX * gridY)
+        for (gy in 0 until gridY) {
+            for (gx in 0 until gridX) {
+                var sum = 0f
+                var count = 0
+                for (dy in -1..1) {
+                    val ny = gy + dy
+                    if (ny in 0 until gridY) {
+                        for (dx in -1..1) {
+                            val nx = gx + dx
+                            if (nx in 0 until gridX) {
+                                sum += bgRaw[ny * gridX + nx]
+                                count++
+                            }
+                        }
+                    }
+                }
+                bgSmooth[gy * gridX + gx] = sum / count
+            }
+        }
 
-        paint.colorFilter = ColorMatrixColorFilter(matrix)
-        canvas.drawBitmap(source, 0f, 0f, paint)
+        // ۲. پردازش هر پیکسل با درونیابی دوخطی نور پس‌زمینه و نگاشت تونال پیوسته
+        for (y in 0 until height) {
+            val fy = (y.toFloat() / blockSize) - 0.5f
+            val gy0 = fy.toInt().coerceIn(0, gridY - 1)
+            val gy1 = (gy0 + 1).coerceIn(0, gridY - 1)
+            val wy = (fy - gy0).coerceIn(0f, 1f)
+            val rowOffset = y * width
 
-        // ۲. الگوریتم پاکسازی نهایی پیکسل‌ها برای فتوکپی تمیز
-        val pixels = IntArray(width * height)
-        output.getPixels(pixels, 0, width, 0, 0, width, height)
+            for (x in 0 until width) {
+                val fx = (x.toFloat() / blockSize) - 0.5f
+                val gx0 = fx.toInt().coerceIn(0, gridX - 1)
+                val gx1 = (gx0 + 1).coerceIn(0, gridX - 1)
+                val wx = (fx - gx0).coerceIn(0f, 1f)
 
-        val threshold = 160 // آستانه تفکیک متن از سفیدی کاغذ
-        for (i in pixels.indices) {
-            val color = pixels[i]
-            val r = (color shr 16) and 0xFF
-            val g = (color shr 8) and 0xFF
-            val b = color and 0xFF
-            val luminance = (0.299 * r + 0.587 * g + 0.114 * b).toInt()
+                // درونیابی سطح روشنایی پس‌زمینه در مختصات جاری
+                val top = bgSmooth[gy0 * gridX + gx0] * (1f - wx) + bgSmooth[gy0 * gridX + gx1] * wx
+                val bottom = bgSmooth[gy1 * gridX + gx0] * (1f - wx) + bgSmooth[gy1 * gridX + gx1] * wx
+                val bgLum = top * (1f - wy) + bottom * wy
 
-            if (luminance >= threshold) {
-                // تبدیل پس‌زمینه کاغذ به سفید مطلق
-                pixels[i] = Color.WHITE
-            } else {
-                // تقویت خطوط متن به سیاه عمیق با حفظ نرمی لبه‌ها
-                val factor = luminance.toFloat() / threshold.toFloat()
-                val newGray = (factor * 35).toInt().coerceIn(0, 50)
-                pixels[i] = Color.rgb(newGray, newGray, newGray)
+                val idx = rowOffset + x
+                val c = pixels[idx]
+                val r = (c shr 16) and 0xFF
+                val g = (c shr 8) and 0xFF
+                val b = c and 0xFF
+                val lumCenter = 0.299f * r + 0.587f * g + 0.114f * b
+
+                // اعمال ماسک افزایش وضوح متن (Sharpening) برای شفاف‌سازی لبه‌های حروف و خطوط ریز
+                val sharpLum = if (x > 0 && x < width - 1 && y > 0 && y < height - 1) {
+                    val cL = pixels[idx - 1]
+                    val cR = pixels[idx + 1]
+                    val cT = pixels[idx - width]
+                    val cB = pixels[idx + width]
+
+                    val nLum = (
+                        (0.299f * ((cL shr 16) and 0xFF) + 0.587f * ((cL shr 8) and 0xFF) + 0.114f * (cL and 0xFF)) +
+                        (0.299f * ((cR shr 16) and 0xFF) + 0.587f * ((cR shr 8) and 0xFF) + 0.114f * (cR and 0xFF)) +
+                        (0.299f * ((cT shr 16) and 0xFF) + 0.587f * ((cT shr 8) and 0xFF) + 0.114f * (cT and 0xFF)) +
+                        (0.299f * ((cB shr 16) and 0xFF) + 0.587f * ((cB shr 8) and 0xFF) + 0.114f * (cB and 0xFF))
+                    ) * 0.25f
+
+                    (lumCenter + 0.35f * (lumCenter - nLum)).coerceIn(0f, 255f)
+                } else {
+                    lumCenter
+                }
+
+                // نسبت روشنایی پیکسل به روشنایی محلی کاغذ
+                val ratio = (sharpLum / bgLum).coerceIn(0f, 1.2f)
+
+                if (ratio >= 0.88f) {
+                    // پس‌زمینه کاغذ: تبدیل به سفید تمیز، یکدست و براق بدون لکه‌های خاکستری
+                    pixels[idx] = Color.WHITE
+                } else if (ratio <= 0.42f) {
+                    // مغز حروف و خطوط: مشکی عمیق، توپر و بدون بریدگی یا کم‌رنگ شدن
+                    val darkVal = (ratio / 0.42f * 18f).toInt().coerceIn(0, 22)
+                    pixels[idx] = Color.rgb(darkVal, darkVal, darkVal)
+                } else {
+                    // ناحیه شیب و لبه حروف (Anti-aliasing): نگاشت پیوسته منحنی جهت جلوگیری از دندانه‌موشی شدن حروف
+                    val t = (ratio - 0.42f) / (0.88f - 0.42f)
+                    val smooth = t * t * (3f - 2f * t)
+                    val gray = (18f + smooth * 237f).toInt().coerceIn(0, 255)
+                    pixels[idx] = Color.rgb(gray, gray, gray)
+                }
             }
         }
 
