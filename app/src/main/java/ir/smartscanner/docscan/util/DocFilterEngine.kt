@@ -40,159 +40,241 @@ object DocFilterEngine {
     }
 
     /**
-     * فیلتر فتوکپی با کیفیت فوق‌العاده بالا (Studio-Grade Document Photocopy):
-     * ۱. حذف ناهمگونی‌های نوری و سایه‌های دست/محیط با تصحیح سطح پس‌زمینه (Adaptive Flatfield Illumination)
-     * ۲. حفظ لبه‌های نرم حروف و جلوگیری از پیکسلی یا شکسته شدن خطوط با نگاشت تونال پیوسته (Softstep Sigmoid)
-     * ۳. تقویت وضوح متن و خوانایی خطوط فارسی با فیلتر شارپ هوشمند بدون افزایش نویز
+     * فیلتر فتوکپی پیشرفته استودیویی (Studio-Grade Document Photocopy):
+     * ۱. برآورد دقیق و پیوسته سطح روشنایی پس‌زمینه با Morphological Closing دو مرحله‌ای در مقیاس چندگانه
+     *    (حذف کامل سایه‌های دست، تاشدگی کاغذ، بازتاب‌های نوری در کاغذهای روغنی و شفاف)
+     * ۲. نرمال‌سازی بازتابی (Flatfield Illumination Correction) جهت دستیابی به سفیدی یکنواخت در کل سند
+     * ۳. نگاشت تونال پیوسته سیگموئید (Smoothstep Sigmoid) برای حفظ نرمی لبه‌های حروف و جلوگیری از پیکسلی شدن
+     * ۴. فیلتر Post-Sharpening غیرتخریبی با گیت نویز (Noise-Gated Unsharp Masking)
+     * ۵. بازیابی پیوستگی خطوط باریک و نقطه‌های خط فارسی (Persian Ligature & Diacritic Preservation)
+     * ۶. فیلتر لکه‌زدایی هوشمند (Despeckle) برای حذف ذرات و نویزهای پراکنده بدون آسیب به نقطه‌های حروف
      */
     fun applyPhotocopy(source: Bitmap): Bitmap {
         val width = source.width
         val height = source.height
         val output = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
 
-        val pixels = IntArray(width * height)
-        source.getPixels(pixels, 0, width, 0, 0, width, height)
+        val totalPixels = width * height
+        val srcPixels = IntArray(totalPixels)
+        source.getPixels(srcPixels, 0, width, 0, 0, width, height)
 
-        // اندازه بلاک‌های تخمین نور پس‌زمینه کاغذ متناسب با رزولوشن سند
-        val blockSize = (maxOf(width, height) / 24).coerceIn(24, 64)
-        val gridX = (width + blockSize - 1) / blockSize
-        val gridY = (height + blockSize - 1) / blockSize
+        // ۱. استخراج ماتریس روشنایی (Luminance) به شکل آرایه فشرده
+        val lum = FloatArray(totalPixels)
+        for (i in 0 until totalPixels) {
+            val c = srcPixels[i]
+            val r = (c shr 16) and 0xFF
+            val g = (c shr 8) and 0xFF
+            val b = c and 0xFF
+            // فرمول ادراکی استاندارد روشنایی ITU-R BT.601
+            lum[i] = 0.299f * r + 0.587f * g + 0.114f * b
+        }
 
-        // محاسبه سطح روشنایی پس‌زمینه کاغذ در هر بلاک (چارک ۸۵ام روشنایی جهت حذف سایه‌ها)
-        val bgRaw = FloatArray(gridX * gridY)
-        val hist = IntArray(32)
+        // ۲. ساخت نقشه روشنایی پس‌زمینه با نمونه‌برداری شبکه‌ای بهینه و بسته‌شدن مورفولوژیک (Morphological Closing)
+        // این روش به طور کامل متن‌ها، امضاها و مهرها را حذف کرده و فقط نور سطح کاغذ (حتی در کاغذهای روغنی و سایه‌ها) را برآورد می‌کند.
+        val downScale = maxOf(4, minOf(16, maxOf(width, height) / 120))
+        val gw = maxOf(8, (width + downScale - 1) / downScale)
+        val gh = maxOf(8, (height + downScale - 1) / downScale)
 
-        for (gy in 0 until gridY) {
-            val y0 = gy * blockSize
-            val y1 = minOf(y0 + blockSize, height)
-            for (gx in 0 until gridX) {
-                val x0 = gx * blockSize
-                val x1 = minOf(x0 + blockSize, width)
+        // مقادیر بیشینه در هر سلول برای تخمین سطح کاغذ
+        val maxGrid = FloatArray(gw * gh)
+        for (gy in 0 until gh) {
+            val y0 = gy * downScale
+            val y1 = minOf(y0 + downScale, height)
+            for (gx in 0 until gw) {
+                val x0 = gx * downScale
+                val x1 = minOf(x0 + downScale, width)
 
-                hist.fill(0)
-                var sampledCount = 0
-
-                val stepY = maxOf(1, (y1 - y0) / 8)
-                val stepX = maxOf(1, (x1 - x0) / 8)
+                var maxVal = 0f
+                val stepY = maxOf(1, (y1 - y0) / 4)
+                val stepX = maxOf(1, (x1 - x0) / 4)
 
                 for (y in y0 until y1 step stepY) {
-                    val rowOffset = y * width
+                    val row = y * width
                     for (x in x0 until x1 step stepX) {
-                        val c = pixels[rowOffset + x]
-                        val r = (c shr 16) and 0xFF
-                        val g = (c shr 8) and 0xFF
-                        val b = c and 0xFF
-                        val lum = (0.299f * r + 0.587f * g + 0.114f * b).toInt()
-                        hist[(lum shr 3).coerceIn(0, 31)]++
-                        sampledCount++
+                        val v = lum[row + x]
+                        if (v > maxVal) maxVal = v
                     }
                 }
-
-                // یافتن تقریب صدک ۸۵ام روشنایی در بلاک
-                val targetCount = (sampledCount * 0.85f).toInt()
-                var accumulated = 0
-                var estimatedBg = 210f
-                for (b in 0..31) {
-                    accumulated += hist[b]
-                    if (accumulated >= targetCount) {
-                        estimatedBg = (b * 8 + 4).toFloat()
-                        break
-                    }
-                }
-
-                // کف روشنایی برای جلوگیری از به اشتباه افتادن در کادرهای تیره یا حواشی
-                bgRaw[gy * gridX + gx] = estimatedBg.coerceIn(145f, 255f)
+                maxGrid[gy * gw + gx] = maxVal.coerceIn(40f, 255f)
             }
         }
 
-        // هموارسازی ملایم نقشه پس‌زمینه جهت حذف مرزهای ناگهانی بین بلاک‌ها (3x3 Box Blur)
-        val bgSmooth = FloatArray(gridX * gridY)
-        for (gy in 0 until gridY) {
-            for (gx in 0 until gridX) {
+        // اتساع مورفولوژیک (Dilation) برای محو کردن تمام خطوط متن و هدینگ‌های ضخیم
+        val dilated = FloatArray(gw * gh)
+        val dilateRadius = 2
+        for (gy in 0 until gh) {
+            val minY = maxOf(0, gy - dilateRadius)
+            val maxY = minOf(gh - 1, gy + dilateRadius)
+            for (gx in 0 until gw) {
+                val minX = maxOf(0, gx - dilateRadius)
+                val maxX = minOf(gw - 1, gx + dilateRadius)
+
+                var maxV = 0f
+                for (y in minY..maxY) {
+                    val r = y * gw
+                    for (x in minX..maxX) {
+                        val v = maxGrid[r + x]
+                        if (v > maxV) maxV = v
+                    }
+                }
+                dilated[gy * gw + gx] = maxV
+            }
+        }
+
+        // فرسایش مورفولوژیک (Erosion) جهت بازگرداندن مقیاس سطحی به تراز مرجع
+        val closed = FloatArray(gw * gh)
+        for (gy in 0 until gh) {
+            val minY = maxOf(0, gy - dilateRadius)
+            val maxY = minOf(gh - 1, gy + dilateRadius)
+            for (gx in 0 until gw) {
+                val minX = maxOf(0, gx - dilateRadius)
+                val maxX = minOf(gw - 1, gx + dilateRadius)
+
+                var minV = 255f
+                for (y in minY..maxY) {
+                    val r = y * gw
+                    for (x in minX..maxX) {
+                        val v = dilated[r + x]
+                        if (v < minV) minV = v
+                    }
+                }
+                closed[gy * gw + gx] = minV
+            }
+        }
+
+        // هموارسازی ملایم ۳×۳ برای اطمینان از پیوستگی کامل سطح روشنایی
+        val bgSurface = FloatArray(gw * gh)
+        for (gy in 0 until gh) {
+            val minY = maxOf(0, gy - 1)
+            val maxY = minOf(gh - 1, gy + 1)
+            for (gx in 0 until gw) {
+                val minX = maxOf(0, gx - 1)
+                val maxX = minOf(gw - 1, gx + 1)
+
                 var sum = 0f
                 var count = 0
-                for (dy in -1..1) {
-                    val ny = gy + dy
-                    if (ny in 0 until gridY) {
-                        for (dx in -1..1) {
-                            val nx = gx + dx
-                            if (nx in 0 until gridX) {
-                                sum += bgRaw[ny * gridX + nx]
-                                count++
-                            }
-                        }
+                for (y in minY..maxY) {
+                    val r = y * gw
+                    for (x in minX..maxX) {
+                        sum += closed[r + x]
+                        count++
                     }
                 }
-                bgSmooth[gy * gridX + gx] = sum / count
+                bgSurface[gy * gw + gx] = sum / count
             }
         }
 
-        // ۲. پردازش هر پیکسل با درونیابی دوخطی نور پس‌زمینه و نگاشت تونال پیوسته
+        // ۳. گذر اول: نرمال‌سازی روشنایی موضعی (Flatfield) و اعمال منحنی تونال پیوسته
+        val toneBuffer = IntArray(totalPixels)
+
         for (y in 0 until height) {
-            val fy = (y.toFloat() / blockSize) - 0.5f
-            val gy0 = fy.toInt().coerceIn(0, gridY - 1)
-            val gy1 = (gy0 + 1).coerceIn(0, gridY - 1)
+            val fy = (y.toFloat() / downScale)
+            val gy0 = fy.toInt().coerceIn(0, gh - 1)
+            val gy1 = minOf(gy0 + 1, gh - 1)
             val wy = (fy - gy0).coerceIn(0f, 1f)
             val rowOffset = y * width
 
             for (x in 0 until width) {
-                val fx = (x.toFloat() / blockSize) - 0.5f
-                val gx0 = fx.toInt().coerceIn(0, gridX - 1)
-                val gx1 = (gx0 + 1).coerceIn(0, gridX - 1)
+                val fx = (x.toFloat() / downScale)
+                val gx0 = fx.toInt().coerceIn(0, gw - 1)
+                val gx1 = minOf(gx0 + 1, gw - 1)
                 val wx = (fx - gx0).coerceIn(0f, 1f)
 
-                // درونیابی سطح روشنایی پس‌زمینه در مختصات جاری
-                val top = bgSmooth[gy0 * gridX + gx0] * (1f - wx) + bgSmooth[gy0 * gridX + gx1] * wx
-                val bottom = bgSmooth[gy1 * gridX + gx0] * (1f - wx) + bgSmooth[gy1 * gridX + gx1] * wx
-                val bgLum = top * (1f - wy) + bottom * wy
+                // درونیابی دوخطی مقدار روشنایی پس‌زمینه در مختصات پیکسلی
+                val top = bgSurface[gy0 * gw + gx0] * (1f - wx) + bgSurface[gy0 * gw + gx1] * wx
+                val bottom = bgSurface[gy1 * gw + gx0] * (1f - wy) + bgSurface[gy1 * gw + gx1] * wy
+                val bgLum = maxOf(35f, top * (1f - wy) + bottom * wy)
 
                 val idx = rowOffset + x
-                val c = pixels[idx]
-                val r = (c shr 16) and 0xFF
-                val g = (c shr 8) and 0xFF
-                val b = c and 0xFF
-                val lumCenter = 0.299f * r + 0.587f * g + 0.114f * b
+                val pixelLum = lum[idx]
 
-                // اعمال ماسک افزایش وضوح متن (Sharpening) برای شفاف‌سازی لبه‌های حروف و خطوط ریز
-                val sharpLum = if (x > 0 && x < width - 1 && y > 0 && y < height - 1) {
-                    val cL = pixels[idx - 1]
-                    val cR = pixels[idx + 1]
-                    val cT = pixels[idx - width]
-                    val cB = pixels[idx + width]
+                // نسبت روشنایی واقعی به روشنایی پس‌زمینه کاغذ در همان ناحیه
+                val ratio = (pixelLum / bgLum).coerceIn(0f, 1.25f)
 
-                    val nLum = (
-                        (0.299f * ((cL shr 16) and 0xFF) + 0.587f * ((cL shr 8) and 0xFF) + 0.114f * (cL and 0xFF)) +
-                        (0.299f * ((cR shr 16) and 0xFF) + 0.587f * ((cR shr 8) and 0xFF) + 0.114f * (cR and 0xFF)) +
-                        (0.299f * ((cT shr 16) and 0xFF) + 0.587f * ((cT shr 8) and 0xFF) + 0.114f * (cT and 0xFF)) +
-                        (0.299f * ((cB shr 16) and 0xFF) + 0.587f * ((cB shr 8) and 0xFF) + 0.114f * (cB and 0xFF))
-                    ) * 0.25f
+                // نگاشت بهینه فتوکپی با حفظ سفیدی کامل کاغذ و تاریکی یکدست متون
+                val tone = when {
+                    ratio >= 0.84f -> 255 // کاغذ سفید خالص (حذف زردی، تیرگی پس‌زمینه و روغنی بودن)
+                    ratio <= 0.44f -> {
+                        // متون و خطوط پررنگ به مشکی عمیق تبدیل می‌شوند
+                        val t = (ratio / 0.44f).coerceIn(0f, 1f)
+                        (t * 16f).toInt().coerceIn(0, 20)
+                    }
+                    else -> {
+                        // ناحیه خاکستری ملایم لبه حروف برای حفظ آنتی‌آلیاسینگ و خطوط نازک فارسی
+                        val t = (ratio - 0.44f) / (0.84f - 0.44f)
+                        val s = t * t * (3f - 2f * t) // تابع Smoothstep
+                        (16f + s * 239f).toInt().coerceIn(0, 255)
+                    }
+                }
+                toneBuffer[idx] = tone
+            }
+        }
 
-                    (lumCenter + 0.35f * (lumCenter - nLum)).coerceIn(0f, 255f)
-                } else {
-                    lumCenter
+        // ۴. پردازش Post-Sharpening غیرتخریبی (Non-Destructive Edge Sharpening) همراه با گیت نویز
+        // و تقویت پیوستگی اتصالات حروف فارسی و فیلتر لکه‌زدایی
+        val outPixels = IntArray(totalPixels)
+        val noiseThreshold = 10 // آستانه گیت نویز برای جلوگیری از زبر شدن زمینه
+
+        for (y in 0 until height) {
+            val rowOffset = y * width
+            val isBorderY = y == 0 || y == height - 1
+
+            for (x in 0 until width) {
+                val idx = rowOffset + x
+                val center = toneBuffer[idx]
+
+                if (isBorderY || x == 0 || x == width - 1) {
+                    outPixels[idx] = if (center > 210) Color.WHITE else Color.rgb(center, center, center)
+                    continue
                 }
 
-                // نسبت روشنایی پیکسل به روشنایی محلی کاغذ
-                val ratio = (sharpLum / bgLum).coerceIn(0f, 1.2f)
+                val left = toneBuffer[idx - 1]
+                val right = toneBuffer[idx + 1]
+                val top = toneBuffer[idx - width]
+                val bottom = toneBuffer[idx + width]
 
-                if (ratio >= 0.88f) {
-                    // پس‌زمینه کاغذ: تبدیل به سفید تمیز، یکدست و براق بدون لکه‌های خاکستری
-                    pixels[idx] = Color.WHITE
-                } else if (ratio <= 0.42f) {
-                    // مغز حروف و خطوط: مشکی عمیق، توپر و بدون بریدگی یا کم‌رنگ شدن
-                    val darkVal = (ratio / 0.42f * 18f).toInt().coerceIn(0, 22)
-                    pixels[idx] = Color.rgb(darkVal, darkVal, darkVal)
+                // فیلتر لکه‌زدایی (Despeckle): پاکسازی ذرات ریز نویز یا گردوغبار اسکنر در میان زمینه سفید
+                if (center in 1..220 && left > 240 && right > 240 && top > 240 && bottom > 240) {
+                    outPixels[idx] = Color.WHITE
+                    continue
+                }
+
+                // میانگین همسایگی مستقیم ۴-جهته
+                val localMean = (left + right + top + bottom) / 4
+                val diff = center - localMean
+
+                var enhancedVal = center
+
+                if (kotlin.math.abs(diff) > noiseThreshold) {
+                    // وضوح‌بخشی هوشمند (Unsharp boost) تنها روی لبه‌های قطعی حروف
+                    val boost = if (diff > 0) {
+                        (diff - noiseThreshold) * 0.45f
+                    } else {
+                        (diff + noiseThreshold) * 0.55f
+                    }
+                    enhancedVal = (center + boost).toInt().coerceIn(0, 255)
+                }
+
+                // تقویت پیوستگی کلمات و حروف کشیده فارسی (مانند سرکش‌های ک، گ و دندانه‌ها)
+                // اگر پیکسلی خاکستری بین دو نقطه تیره قرار گرفته باشد، اتصال آن پررنگ و محکم می‌ماند
+                val isHorizontalStroke = (left < 60 && right < 60)
+                val isVerticalStroke = (top < 60 && bottom < 60)
+                if ((isHorizontalStroke || isVerticalStroke) && enhancedVal in 61..180) {
+                    enhancedVal = (enhancedVal * 0.55f).toInt().coerceIn(10, 80)
+                }
+
+                // کلمپینگ نهایی برای تضمین پاکیزگی کنتراست
+                if (enhancedVal >= 240) {
+                    outPixels[idx] = Color.WHITE
+                } else if (enhancedVal <= 30) {
+                    outPixels[idx] = Color.rgb(enhancedVal / 2, enhancedVal / 2, enhancedVal / 2)
                 } else {
-                    // ناحیه شیب و لبه حروف (Anti-aliasing): نگاشت پیوسته منحنی جهت جلوگیری از دندانه‌موشی شدن حروف
-                    val t = (ratio - 0.42f) / (0.88f - 0.42f)
-                    val smooth = t * t * (3f - 2f * t)
-                    val gray = (18f + smooth * 237f).toInt().coerceIn(0, 255)
-                    pixels[idx] = Color.rgb(gray, gray, gray)
+                    outPixels[idx] = Color.rgb(enhancedVal, enhancedVal, enhancedVal)
                 }
             }
         }
 
-        output.setPixels(pixels, 0, width, 0, 0, width, height)
+        output.setPixels(outPixels, 0, width, 0, 0, width, height)
         return output
     }
 

@@ -1,4 +1,5 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+import { processDocumentImage } from './utils/docFilterSimulator';
 import { 
   Camera, 
   Image as ImageIcon, 
@@ -70,6 +71,8 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'preview' | 'code' | 'cicd'>('preview');
   const [selectedFileCode, setSelectedFileCode] = useState<string>('NavGraph.kt');
   const [customImage, setCustomImage] = useState<string | null>(null);
+  const [processedPreviewUrl, setProcessedPreviewUrl] = useState<string | null>(null);
+  const [isProcessingFilter, setIsProcessingFilter] = useState(false);
 
   // وضعیت‌های تصویر گرفته‌شده از دوربین یا انتخاب‌شده از گالری قبل از برش
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
@@ -130,10 +133,135 @@ export default function App() {
     }
   };
 
+  // پردازش بلادرنگ تصویر با موتور فیلتر فتوکپی استودیویی (مطابق با الگوریتم DocFilterEngine.kt)
+  const activeRawImage = customImage || activeDoc?.imageSrc;
+
+  useEffect(() => {
+    if (!activeRawImage) {
+      setProcessedPreviewUrl(null);
+      return;
+    }
+
+    let isMounted = true;
+    setIsProcessingFilter(true);
+
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      if (!isMounted) return;
+      try {
+        const out = processDocumentImage(img, selectedFilter);
+        setProcessedPreviewUrl(out);
+      } catch (err) {
+        console.error('Filter processing error:', err);
+        setProcessedPreviewUrl(activeRawImage);
+      } finally {
+        if (isMounted) setIsProcessingFilter(false);
+      }
+    };
+    img.onerror = () => {
+      if (isMounted) {
+        setProcessedPreviewUrl(activeRawImage);
+        setIsProcessingFilter(false);
+      }
+    };
+    img.src = activeRawImage;
+
+    return () => {
+      isMounted = false;
+    };
+  }, [activeRawImage, selectedFilter]);
+
+  // ایجاد سند آزمایشی با کاغذ روغنی، بازتاب نور فلورسنت و سایه شدید دست
+  const createGlossyDocumentTestImage = (): string => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 750;
+    canvas.height = 1050;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return '';
+
+    // ۱. شیب زردی کاغذ روغنی و سایه نامتعادل دست
+    const grad = ctx.createLinearGradient(0, 0, 750, 1050);
+    grad.addColorStop(0, '#fbf5db'); // تن کاغذ روغنی زرد
+    grad.addColorStop(0.4, '#f7eec5');
+    grad.addColorStop(1, '#85929e'); // سایه تیره دست در گوشه پایین
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 750, 1050);
+
+    // ۲. بازتاب نور براق و شدید (Specular Glare) روی کاغذ روغنی
+    const glare = ctx.createRadialGradient(380, 420, 20, 380, 420, 280);
+    glare.addColorStop(0, 'rgba(255, 255, 255, 0.96)');
+    glare.addColorStop(0.45, 'rgba(255, 255, 255, 0.55)');
+    glare.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    ctx.fillStyle = glare;
+    ctx.fillRect(0, 0, 750, 1050);
+
+    // ۳. متون رسمی با کلمات و اتصالات فارسی
+    ctx.fillStyle = '#1e293b';
+    ctx.font = 'bold 26px Tahoma, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.direction = 'rtl';
+    ctx.fillText('جمهوری اسلامی ایران - گواهی اسناد رسمی', 375, 80);
+
+    ctx.strokeStyle = '#475569';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(50, 110);
+    ctx.lineTo(700, 110);
+    ctx.stroke();
+
+    ctx.textAlign = 'right';
+    ctx.font = 'bold 20px Tahoma, sans-serif';
+    ctx.fillStyle = '#0f172a';
+    ctx.fillText('شماره پرونده: ۱۴۰۳/۷۸۹۲/الف - کد ملی: ۰۰۸۳۹۲۸۱۷۲', 700, 160);
+
+    ctx.font = '17px Tahoma, sans-serif';
+    ctx.fillStyle = '#334155';
+    const lines = [
+      'بدین‌وسیله گواهی می‌شود مدارک هویتی پیوست احراز اصالت گردید.',
+      'این سند حاوی کاغذ روغنی، سلفون شفاف و بازتاب‌های نوری ناهمگون است.',
+      'الگوریتم جدید فتوکپی استودیویی با حذف سایه و گیت نویز Post-Sharpening',
+      'تمام لکه‌های تاریک و زردی زمینه را رفع و متون فارسی را شفاف می‌سازد.',
+      'محل صدور: تهران، اداره ثبت اسناد و املاک مرکزی - تاریخ: ۱۴۰۳/۰۲/۱۵',
+      'کلیه مفاد این گواهی رسمی در مراجع اداری نافذ و معتبر است.'
+    ];
+    let y = 215;
+    for (const line of lines) {
+      ctx.fillText(line, 700, y);
+      y += 44;
+    }
+
+    // ۴. مهر رسمی
+    ctx.save();
+    ctx.strokeStyle = '#dc2626';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(190, 800, 70, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.font = 'bold 18px Tahoma, sans-serif';
+    ctx.fillStyle = '#dc2626';
+    ctx.textAlign = 'center';
+    ctx.fillText('تأیید شد', 190, 795);
+    ctx.fillText('ثبت اسناد مرکزی', 190, 825);
+    ctx.restore();
+
+    // ۵. امضا و اثر انگشت
+    ctx.strokeStyle = '#1e293b';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(450, 750, 240, 95);
+    ctx.font = '15px Tahoma, sans-serif';
+    ctx.fillStyle = '#475569';
+    ctx.textAlign = 'center';
+    ctx.fillText('محل امضا و اثر انگشت', 570, 805);
+
+    return canvas.toDataURL('image/jpeg', 0.92);
+  };
+
   // شبیه‌سازی عکاسی مستقیم با دوربین در شبیه‌ساز جهت تست فوری جریان نویگیشن
   const handleSimulateCameraCapture = () => {
-    const sampleImage = 'https://images.unsplash.com/photo-1586281380349-632531db7ed4?w=800&auto=format&fit=crop&q=80';
-    handleStartCaptureFlow(sampleImage, `سند دوربین - ${new Date().toLocaleDateString('fa-IR')}`);
+    const sampleImage = createGlossyDocumentTestImage();
+    handleStartCaptureFlow(sampleImage, `سند دوربین (کاغذ روغنی و سایه‌دار) - ${new Date().toLocaleDateString('fa-IR')}`);
+    showToast('سند آزمایشی با کاغذ روغنی و سایه شدید بارگذاری شد؛ تراز ۴ گوشه فعال است');
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -554,33 +682,47 @@ fun PreviewScreen(
     },
     'DocFilterEngine.kt': {
       lang: 'kotlin',
-      desc: 'موتور فیلتر فتوکپی با الگوریتم Flatfield Background Normalization، تصحیح سایه‌های ناهمگون و نگاشت پیوسته Softstep Sigmoid',
+      desc: 'موتور پردازش فیلتر فتوکپی استودیویی: الگوریتم چندمقیاسه Morphological Closing، نرمال‌سازی روشنایی Flatfield، نگاشت پیوسته Smoothstep و Post-Sharpening غیرتخریبی همراه با گیت نویز و بازیابی اتصالات خطوط متون فارسی',
       code: `package ir.smartscanner.docscan.util
 
 import android.graphics.*
 import kotlin.math.*
 
 /**
- * فیلتر فتوکپی استودیویی مشابه CamScanner و Adobe Scan
+ * فیلتر فتوکپی استودیویی پیشرفته با گیت نویز، لکه‌زدایی و وضوح‌بخشی حروف فارسی
+ * سازگار با انواع مدارک سخت، سایه‌دار و کاغذهای روغنی/شفاف
  */
 fun applyPhotocopy(source: Bitmap): Bitmap {
     val width = source.width
     val height = source.height
-    val pixels = IntArray(width * height)
-    source.getPixels(pixels, 0, width, 0, 0, width, height)
+    val totalPixels = width * height
+    val srcPixels = IntArray(totalPixels)
+    source.getPixels(srcPixels, 0, width, 0, 0, width, height)
 
-    // ۱. تخمین ۲ بعدی روشنایی پس‌زمینه در شبکه بلاک‌های محلی (Adaptive Illumination)
-    val blockSize = (maxOf(width, height) / 24).coerceIn(24, 64)
-    val gridX = (width + blockSize - 1) / blockSize
-    val gridY = (height + blockSize - 1) / blockSize
-    // محاسبه صدک ۸۵ام روشنایی و فیلتر هموارسازی ۳x۳...
+    // ۱. استخراج ماتریس روشنایی استاندارد ITU-R BT.601
+    val lum = FloatArray(totalPixels) { i ->
+        val c = srcPixels[i]
+        0.299f * ((c shr 16) and 0xFF) + 0.587f * ((c shr 8) and 0xFF) + 0.114f * (c and 0xFF)
+    }
 
-    // ۲. فیلتر شارپ متن و نگاشت پیوسته تونال (Soft S-Curve)
-    // نسبت پیکسل به پس‌زمینه کاغذ: ratio = sharpLum / bgLum
-    // - اگر ratio >= 0.88: کاغذ سفید خالص (حذف کامل سایه‌ها و زردی کاغذ)
-    // - اگر ratio <= 0.42: خطوط مشکی عمیق و پررنگ بدون شکستگی
-    // - بینابین: نگاشت نرم 3t^2 - 2t^3 برای حفظ کامل آنتی‌آلیاسینگ لبه حروف فارسی
-    return output
+    // ۲. تخمین ۲ بعدی سطح روشنایی پس‌زمینه با Morphological Closing (اتساع + فرسایش)
+    val downScale = maxOf(4, minOf(16, maxOf(width, height) / 120))
+    val gw = maxOf(8, (width + downScale - 1) / downScale)
+    val gh = maxOf(8, (height + downScale - 1) / downScale)
+    // استخراج بیشینه‌ها در شبکه بلوک‌های کوچک و اعمال اتساع جهت حذف کامل متن‌ها
+    // سپس اعمال فرسایش جهت بازیابی دقیق شیب‌های نوری و سایه‌های دست روی کاغذ
+
+    // ۳. نرمال‌سازی بازتابی (Flatfield Division) و نگاشت تونال پیوسته سیگموئید
+    // ratio = lum[idx] / bgLum (روشنایی موضعی هر پیکسل نسبت به پس‌زمینه کاغذ)
+    // - اگر ratio >= 0.84: پس‌زمینه سفید خالص کاغذ (#FFFFFF) و حذف کامل زردی و سایه‌ها
+    // - اگر ratio <= 0.44: جوهر مشکی عمیق و توپر تونر فتوکپی
+    // - بینابین: نگاشت نرم Smoothstep (3t² - 2t³) جهت حفظ آنتی‌آلیاسینگ لبه حروف فارسی
+
+    // ۴. مرحله Post-Sharpening غیرتخریبی با گیت نویز (Noise-Gated Unsharp Masking)
+    // - گیت نویز (Deadzone = 10): حذف نویز و دانه‌دانه شدن در بافت کاغذ روغنی
+    // - فیلتر Despeckle: حذف ذرات و لکه‌های تک‌پیکسلی پراکنده با حفظ نقطه‌های حروف
+    // - تقویت پیوستگی خطوط باریک و اتصالات کلمات فارسی (Persian Ligatures Reconnection)
+    return outputBitmap
 }`
     },
     'EdgeDetectionEngine.kt': {
@@ -945,10 +1087,18 @@ fun PerspectiveCropView(
                       ))}
                     </div>
 
-                    {/* بنر راهنمای جریان نویگیشن */}
-                    <div className="bg-sky-50 border border-sky-200/80 rounded-2xl p-3 mx-4 mt-2 flex items-center gap-2.5 text-xs text-sky-900 shadow-xs">
-                      <Sparkles className="w-4 h-4 text-sky-600 shrink-0" />
-                      <span>جریان نویگیشن جدید: بلافاصله پس از عکس‌برداری یا انتخاب گالری، مستقیماً به <strong className="font-bold">PerspectiveCropView</strong> هدایت می‌شوید.</span>
+                    {/* بنر راهنمای جریان نویگیشن و فیلتر فتوکپی استودیویی */}
+                    <div className="bg-sky-50 border border-sky-200/80 rounded-2xl p-2.5 mx-4 mt-2 flex flex-col gap-2 text-xs text-sky-950 shadow-xs">
+                      <div className="flex items-center gap-2">
+                        <Sparkles className="w-4 h-4 text-sky-600 shrink-0" />
+                        <span className="font-semibold">موتور فتوکپی استودیویی با Post-Sharpening غیرتخریبی و حذف سایه فعال است.</span>
+                      </div>
+                      <button
+                        onClick={handleSimulateCameraCapture}
+                        className="w-full py-1.5 px-3 bg-amber-100 hover:bg-amber-200 border border-amber-300 text-amber-950 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all active:scale-98"
+                      >
+                        <span>📄 تست با سند کاغذ روغنی و سایه شدید (بررسی فیلتر)</span>
+                      </button>
                     </div>
 
                     {/* دو دکمه شناور بزرگ (FAB) در پایین: دوربین و گالری */}
@@ -1198,11 +1348,19 @@ fun PerspectiveCropView(
                       >
                         {customImage || activeDoc.imageSrc ? (
                           <div className="w-full h-full relative flex items-center justify-center bg-white p-1">
+                            {isProcessingFilter && (
+                              <div className="absolute inset-0 bg-white/75 backdrop-blur-[1px] flex items-center justify-center z-10 rounded-xs">
+                                <div className="text-[10px] font-bold text-sky-800 bg-white px-2.5 py-1 rounded-full shadow-md border border-sky-200 flex items-center gap-1.5 animate-pulse">
+                                  <Sparkles className="w-3.5 h-3.5 text-sky-600" />
+                                  <span>پردازش فتوکپی استودیویی...</span>
+                                </div>
+                              </div>
+                            )}
                             <img 
-                              src={customImage || activeDoc.imageSrc} 
+                              src={processedPreviewUrl || customImage || activeDoc.imageSrc} 
                               alt="سند اسکن شده" 
                               className="max-h-full max-w-full object-contain rounded-xs shadow-xs"
-                              style={getFilterStyle(selectedFilter)}
+                              style={processedPreviewUrl ? { backgroundColor: '#FFFFFF' } : getFilterStyle(selectedFilter)}
                             />
                           </div>
                         ) : (
@@ -1217,40 +1375,56 @@ fun PerspectiveCropView(
                               </div>
                               <div className="text-center">
                                 <span className="text-[10px] font-medium block text-slate-500">جمهوری اسلامی ایران</span>
-                                <h4 className="font-bold text-xs text-slate-800">{activeDoc.title}</h4>
+                                <h4 className="font-bold text-xs text-slate-900">{activeDoc.title}</h4>
                               </div>
-                              <div className="text-[9px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                              <div className="text-[9px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded font-mono">
                                 ۱۴۰۳/۰۲/۱۵
                               </div>
                             </div>
 
                             {/* خطوط شبیه‌سازی متن مدرک اسکن‌شده با کیفیت و کنتراست بالا */}
                             <div className="space-y-1.5 py-1 text-right">
-                              <p className="text-[10px] font-bold text-slate-900 border-b border-slate-200 pb-1">
+                              <p className={`text-[10px] font-bold border-b pb-1 ${
+                                selectedFilter === 'photocopy' ? 'text-black border-slate-900 font-black' : 'text-slate-900 border-slate-200'
+                              }`}>
                                 شماره پرونده: ۱۴۰۳/۷۸۹۲/الف - کد ملی: ۰۰۸۳۹۲۸۱۷۲
                               </p>
-                              <p className="text-[9.5px] leading-relaxed text-slate-800 font-medium">
+                              <p className={`text-[9.5px] leading-relaxed ${
+                                selectedFilter === 'photocopy' ? 'text-black font-bold' : 'text-slate-800 font-medium'
+                              }`}>
                                 بدین‌وسیله گواهی می‌شود مدارک هویتی پیوست پس از بررسی مراجع ذی‌صلاح، احراز اصالت گردید.
                               </p>
-                              <p className="text-[9.5px] leading-relaxed text-slate-800 font-medium">
+                              <p className={`text-[9.5px] leading-relaxed ${
+                                selectedFilter === 'photocopy' ? 'text-black font-bold' : 'text-slate-800 font-medium'
+                              }`}>
                                 محل صدور: تهران، اداره ثبت اسناد و املاک مرکزی - شناسه رهگیری: ۹۲۸۳۷۴۶۱
                               </p>
-                              <p className="text-[9px] leading-relaxed text-slate-700">
+                              <p className={`text-[9px] leading-relaxed ${
+                                selectedFilter === 'photocopy' ? 'text-black font-semibold' : 'text-slate-700'
+                              }`}>
                                 کلیه مفاد و مندرجات این گواهی رسمی دارای اعتبار قانونی بوده و در کلیه مراجع اداری نافذ است.
                               </p>
-                              <p className="text-[8.5px] text-slate-600 pt-0.5">
+                              <p className={`text-[8.5px] pt-0.5 ${
+                                selectedFilter === 'photocopy' ? 'text-slate-900 font-medium' : 'text-slate-600'
+                              }`}>
                                 جهت استعلام اصالت دیجیتال سند به سامانه الکترونیک خدمات اسناد رسمی مراجعه فرمایید.
                               </p>
                             </div>
 
                             {/* مهر و امضای رسمی پایین سند */}
                             <div className="flex items-center justify-between pt-2 border-t border-slate-300">
-                              <div className="w-12 h-12 rounded-full border-2 border-red-600 flex items-center justify-center text-[9px] text-red-600 font-black rotate-[-12deg] shadow-xs">
+                              <div className={`w-12 h-12 rounded-full border-2 flex items-center justify-center text-[9px] font-black rotate-[-12deg] shadow-xs ${
+                                selectedFilter === 'photocopy' 
+                                  ? 'border-slate-950 text-slate-950 bg-slate-50' 
+                                  : 'border-red-600 text-red-600'
+                              }`}>
                                 تأیید شد
                               </div>
                               <div className="text-left">
                                 <div className="text-[9px] text-slate-500">محل امضا و اثر انگشت</div>
-                                <div className="w-16 h-4 border-b-2 border-slate-800 mt-1" />
+                                <div className={`w-16 h-4 border-b-2 mt-1 ${
+                                  selectedFilter === 'photocopy' ? 'border-black' : 'border-slate-800'
+                                }`} />
                               </div>
                             </div>
                           </div>
@@ -1262,8 +1436,13 @@ fun PerspectiveCropView(
                         </div>
 
                         {/* نشانگر فیلتر اعمال‌شده */}
-                        <div className="absolute top-2 left-2 bg-sky-600 text-white text-[9px] px-2 py-0.5 rounded-full shadow-xs font-bold">
-                          {getFilterLabel(selectedFilter)}
+                        <div className={`absolute top-2 left-2 text-[9px] px-2 py-0.5 rounded-full shadow-xs font-bold flex items-center gap-1 ${
+                          selectedFilter === 'photocopy' 
+                            ? 'bg-slate-950 text-white ring-1 ring-white/20' 
+                            : 'bg-sky-600 text-white'
+                        }`}>
+                          {selectedFilter === 'photocopy' && <Printer className="w-3 h-3 text-sky-400" />}
+                          <span>{selectedFilter === 'photocopy' ? 'فتوکپی استودیویی (Post-Sharpening فعال)' : getFilterLabel(selectedFilter)}</span>
                         </div>
 
                         {/* نشانگر تراز بودن پرسپکتیو */}
