@@ -21,20 +21,16 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
+          cache: 'gradle'
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Ensure Executable Gradlew
+      - name: Make gradlew executable
         run: |
-          sed -i 's/\r$//' ./gradlew || true
+          dos2unix ./gradlew 2>/dev/null || sed -i 's/\r$//' ./gradlew
           chmod +x ./gradlew
 
-      - name: Build Debug APK
-        env:
-          ANDROID_BUILD_TOOLS_VERSION: "34.0.0"
+      - name: Build with Gradle Wrapper
         run: |
-          ./gradlew assembleDebug --no-daemon --stacktrace -x test -x lint
+          ./gradlew assembleDebug --no-daemon --stacktrace --warning-mode all -x test -x lint
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
