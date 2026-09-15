@@ -4,18 +4,24 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.PostAdd
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -28,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ir.smartscanner.docscan.model.DocumentItem
+import ir.smartscanner.docscan.model.DocumentPage
 import ir.smartscanner.docscan.ui.theme.*
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -37,11 +44,15 @@ fun HomeScreen(
     onOpenDocument: (String) -> Unit,
     onDeleteDocument: (String) -> Unit,
     onLaunchCamera: () -> Unit,
-    onLaunchGallery: () -> Unit
+    onLaunchGallery: () -> Unit,
+    onAddPageToDocument: (docId: String, useCamera: Boolean) -> Unit = { _, _ -> },
+    onDeletePageFromDocument: (docId: String, pageId: String) -> Unit = { _, _ -> }
 ) {
     var isSearchActive by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var documentToDelete by remember { mutableStateOf<DocumentItem?>(null) }
+    var managingPagesDoc by remember { mutableStateOf<DocumentItem?>(null) }
+    var pageToDelete by remember { mutableStateOf<Pair<String, DocumentPage>?>(null) }
 
     val filteredDocs = remember(documents, searchQuery) {
         if (searchQuery.isBlank()) {
@@ -111,7 +122,7 @@ fun HomeScreen(
                                     color = TextPrimary
                                 )
                                 Text(
-                                    text = "فتوکپی، برش پرسپکتیو و ذخیره آفلاین",
+                                    text = "مدیریت چند صفحه‌ای با شناسه یکتا و فیلتر فتوکپی",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = TextSecondary
                                 )
@@ -132,7 +143,7 @@ fun HomeScreen(
             }
         },
         floatingActionButton = {
-            // دو دکمه شناور بزرگ (FAB): یکی برای «دوربین» و دیگری برای «گالری»
+            // دو دکمه شناور بزرگ (FAB): یکی برای «دوربین» و دیگری برای «گالری» جهت ایجاد پرونده جدید
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -162,10 +173,10 @@ fun HomeScreen(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "گالری",
+                            text = "سند از گالری",
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp
+                            fontSize = 14.sp
                         )
                     }
                 }
@@ -192,10 +203,10 @@ fun HomeScreen(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "دوربین",
+                            text = "اسکن سند جدید",
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp
+                            fontSize = 14.sp
                         )
                     }
                 }
@@ -210,7 +221,7 @@ fun HomeScreen(
                 .padding(innerPadding)
                 .padding(horizontal = 16.dp),
             contentPadding = PaddingValues(top = 16.dp, bottom = 96.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             item {
                 Row(
@@ -227,7 +238,7 @@ fun HomeScreen(
                         color = TextPrimary
                     )
                     Text(
-                        text = "${filteredDocs.size} مدرک",
+                        text = "${filteredDocs.size} پرونده",
                         style = MaterialTheme.typography.bodyMedium,
                         color = TextTertiary
                     )
@@ -247,27 +258,86 @@ fun HomeScreen(
                     DocumentCard(
                         doc = doc,
                         onClick = { onOpenDocument(doc.id) },
-                        onDelete = { documentToDelete = doc }
+                        onDelete = { documentToDelete = doc },
+                        onManagePages = { managingPagesDoc = doc },
+                        onAddPage = { useCamera -> onAddPageToDocument(doc.id, useCamera) }
                     )
                 }
             }
         }
     }
 
-    // دیالوگ تأیید حذف مدرک
-    documentToDelete?.let { doc ->
+    // دیالوگ مدیریت صفحات سند زیر یک شناسه مدرک یکتا
+    managingPagesDoc?.let { doc ->
+        val currentDoc = documents.find { it.id == doc.id } ?: doc
+        ManagePagesDialog(
+            doc = currentDoc,
+            onDismiss = { managingPagesDoc = null },
+            onAddPage = { useCamera ->
+                managingPagesDoc = null
+                onAddPageToDocument(currentDoc.id, useCamera)
+            },
+            onDeletePage = { page ->
+                pageToDelete = Pair(currentDoc.id, page)
+            },
+            onOpenDocument = {
+                managingPagesDoc = null
+                onOpenDocument(currentDoc.id)
+            }
+        )
+    }
+
+    // دیالوگ تأیید حذف صفحه خاص
+    pageToDelete?.let { (docId, page) ->
         AlertDialog(
-            onDismissRequest = { documentToDelete = null },
+            onDismissRequest = { pageToDelete = null },
             title = {
                 Text(
-                    text = "حذف مدرک",
+                    text = "حذف صفحه ${page.pageNumber}",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
             },
             text = {
                 Text(
-                    text = "آیا از حذف مدرک «${doc.title}» اطمینان دارید؟ تصویر این مدرک از حافظه دستگاه پاک خواهد شد.",
+                    text = "آیا از حذف صفحه شماره ${page.pageNumber} از این سند اطمینان دارید؟",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextSecondary
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onDeletePageFromDocument(docId, page.id)
+                        pageToDelete = null
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("حذف صفحه", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pageToDelete = null }) {
+                    Text("انصراف")
+                }
+            }
+        )
+    }
+
+    // دیالوگ تأیید حذف کل مدرک
+    documentToDelete?.let { doc ->
+        AlertDialog(
+            onDismissRequest = { documentToDelete = null },
+            title = {
+                Text(
+                    text = "حذف کامل پرونده",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    text = "آیا از حذف پرونده «${doc.title}» و کلیه ${doc.pages.size.coerceAtLeast(doc.pageCount)} صفحه آن اطمینان دارید؟",
                     style = MaterialTheme.typography.bodyMedium,
                     color = TextSecondary
                 )
@@ -280,7 +350,7 @@ fun HomeScreen(
                     },
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
                 ) {
-                    Text("حذف", fontWeight = FontWeight.Bold)
+                    Text("حذف پرونده", fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
@@ -296,108 +366,485 @@ fun HomeScreen(
 fun DocumentCard(
     doc: DocumentItem,
     onClick: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onManagePages: () -> Unit,
+    onAddPage: (useCamera: Boolean) -> Unit
 ) {
+    val totalPages = doc.pages.size.coerceAtLeast(doc.pageCount)
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = SurfaceLight),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // عکس بندانگشتی واقعی مدرک (Thumbnail)
-            Box(
-                modifier = Modifier
-                    .size(68.dp, 88.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(SurfaceVariantLight)
-                    .border(1.dp, BorderColor, RoundedCornerShape(8.dp)),
-                contentAlignment = Alignment.Center
+            // ردیف اصلی اطلاعات مدرک
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                if (doc.bitmap != null) {
-                    Image(
-                        bitmap = doc.bitmap.asImageBitmap(),
-                        contentDescription = doc.title,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clip(RoundedCornerShape(8.dp)),
-                        contentScale = ContentScale.Crop
+                // عکس بندانگشتی شاخص مدرک
+                Box(
+                    modifier = Modifier
+                        .size(64.dp, 82.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(SurfaceVariantLight)
+                        .border(1.dp, BorderColor, RoundedCornerShape(10.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    val coverBitmap = doc.primaryBitmap
+                    if (coverBitmap != null) {
+                        Image(
+                            bitmap = coverBitmap.asImageBitmap(),
+                            contentDescription = doc.title,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(RoundedCornerShape(10.dp)),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.Description,
+                            contentDescription = null,
+                            tint = TextTertiary,
+                            modifier = Modifier.size(30.dp)
+                        )
+                    }
+                }
+
+                // عنوان، تاریخ و برچسب‌ها
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = doc.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary,
+                        maxLines = 1
                     )
-                } else {
+
+                    Text(
+                        text = "تاریخ: ${doc.datePersian}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary,
+                        fontSize = 12.sp
+                    )
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // برچسب تعداد صفحات با نشانگر چندصفحه‌ای
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = PrimaryBlueContainer.copy(alpha = 0.7f)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(3.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Layers,
+                                    contentDescription = null,
+                                    tint = OnPrimaryBlueContainer,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Text(
+                                    text = "$totalPages صفحه",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = OnPrimaryBlueContainer,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+
+                        // برچسب فیلتر
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = SurfaceVariantLight
+                        ) {
+                            Text(
+                                text = doc.filter.titleFa,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TextSecondary,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                fontWeight = FontWeight.Medium,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
+
+                // دکمه حذف مدرک
+                IconButton(
+                    onClick = onDelete,
+                    modifier = Modifier.size(34.dp)
+                ) {
                     Icon(
-                        imageVector = Icons.Default.Description,
-                        contentDescription = null,
-                        tint = TextTertiary,
-                        modifier = Modifier.size(32.dp)
+                        imageVector = Icons.Default.DeleteOutline,
+                        contentDescription = "حذف مدرک",
+                        tint = TextTertiary.copy(alpha = 0.7f),
+                        modifier = Modifier.size(18.dp)
                     )
                 }
             }
 
-            // اطلاعات سند (عنوان، تاریخ، حالت فیلتر)
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Text(
-                    text = doc.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary,
-                    maxLines = 1
-                )
-                Text(
-                    text = "تاریخ: ${doc.datePersian}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = TextSecondary,
-                    fontSize = 13.sp
-                )
+            // نوار افقی پیش‌نمایش صفحات زیر همین شناسه سند (Multi-page horizontal strip)
+            if (doc.pages.isNotEmpty()) {
+                HorizontalDivider(color = BorderColor.copy(alpha = 0.5f), thickness = 0.8.dp)
+
                 Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = PrimaryBlueContainer.copy(alpha = 0.6f)
-                    ) {
-                        Text(
-                            text = doc.filter.titleFa,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = OnPrimaryBlueContainer,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                            fontWeight = FontWeight.SemiBold
-                        )
+                    // نمایش بندانگشتی تک‌تک صفحات با برگه و شماره صفحه
+                    doc.pages.forEach { page ->
+                        Box(
+                            modifier = Modifier
+                                .size(46.dp, 60.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(SurfaceVariantLight)
+                                .border(1.dp, BorderColor, RoundedCornerShape(6.dp)),
+                            contentAlignment = Alignment.BottomCenter
+                        ) {
+                            if (page.bitmap != null) {
+                                Image(
+                                    bitmap = page.bitmap.asImageBitmap(),
+                                    contentDescription = "صفحه ${page.pageNumber}",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
+                                )
+                            }
+                            // نشانگر شماره صفحه
+                            Surface(
+                                color = Color.Black.copy(alpha = 0.65f),
+                                shape = RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = "ص ${page.pageNumber}",
+                                    color = Color.White,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(vertical = 1.dp),
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                )
+                            }
+                        }
                     }
 
-                    Text(
-                        text = "${doc.pageCount} صفحه",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = TextTertiary
-                    )
+                    // دکمه افزودن سریع صفحه جدید در نوار صفحات
+                    OutlinedButton(
+                        onClick = onManagePages,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.height(60.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = PrimaryBlueContainer.copy(alpha = 0.2f),
+                            contentColor = MaterialTheme.colorScheme.primary
+                        ),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, PrimaryBlue.copy(alpha = 0.4f))
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = "افزودن برگه",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
                 }
             }
 
-            // دکمه حذف
-            IconButton(
-                onClick = onDelete,
-                modifier = Modifier.size(36.dp)
+            // ردیف دکمه‌های عملیاتی پایین کارت: مدیریت صفحات و پیش‌نمایش
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Default.DeleteOutline,
-                    contentDescription = "حذف مدرک",
-                    tint = TextTertiary.copy(alpha = 0.8f),
-                    modifier = Modifier.size(20.dp)
-                )
+                // دکمه مدیریت صفحات چندگانه (تحت شناسه همین سند)
+                Button(
+                    onClick = onManagePages,
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(38.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                    ),
+                    contentPadding = PaddingValues(horizontal = 10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PostAdd,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "مدیریت صفحات ($totalPages برگه)",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                // دکمه مشاهده و اسکن پیش‌نمایش
+                FilledTonalButton(
+                    onClick = onClick,
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.height(38.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Visibility,
+                        contentDescription = null,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "مشاهده سند",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
             }
         }
     }
+}
+
+/**
+ * دیالوگ مدیریت صفحات سند: افزودن برگه‌های جدید به شناسه سند موجود و مشاهده/حذف صفحات
+ */
+@Composable
+fun ManagePagesDialog(
+    doc: DocumentItem,
+    onDismiss: () -> Unit,
+    onAddPage: (useCamera: Boolean) -> Unit,
+    onDeletePage: (DocumentPage) -> Unit,
+    onOpenDocument: () -> Unit
+) {
+    val pages = doc.pages
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Layers,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Text(
+                        text = "مدیریت صفحات سند",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Text(
+                    text = "${doc.title} (شناسه: ${doc.id})",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                    fontSize = 11.sp
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Text(
+                    text = "می‌توانید صفحات جدیدی با دوربین یا گالری به همین پرونده اضافه کنید یا صفحات قبلی را بررسی و حذف نمایید.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                    lineHeight = 18.sp
+                )
+
+                // دو دکمه افزودن برگه به این سند
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = { onAddPage(true) },
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(42.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CameraAlt,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "+ صفحه با دوربین",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    OutlinedButton(
+                        onClick = { onAddPage(false) },
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(42.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PhotoLibrary,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "+ صفحه از گالری",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                // لیست صفحات موجود در این سند
+                Text(
+                    text = "صفحات موجود در این پرونده (${pages.size} برگه):",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+
+                if (pages.isEmpty()) {
+                    Text(
+                        text = "هنوز صفحه‌ای ذخیره نشده است.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextTertiary
+                    )
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 220.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        pages.forEach { page ->
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = SurfaceVariantLight,
+                                border = androidx.compose.foundation.BorderStroke(1.dp, BorderColor)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    // تصویر بندانگشتی صفحه
+                                    Box(
+                                        modifier = Modifier
+                                            .size(36.dp, 48.dp)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(Color.White),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (page.bitmap != null) {
+                                            Image(
+                                                bitmap = page.bitmap.asImageBitmap(),
+                                                contentDescription = null,
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentScale = ContentScale.Crop
+                                            )
+                                        } else {
+                                            Icon(
+                                                imageVector = Icons.Default.Description,
+                                                contentDescription = null,
+                                                tint = TextTertiary,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
+
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "برگه شماره ${page.pageNumber}",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp,
+                                            color = TextPrimary
+                                        )
+                                        Text(
+                                            text = "شناسه برگه: ${page.id.takeLast(12)}",
+                                            fontSize = 10.sp,
+                                            color = TextTertiary
+                                        )
+                                    }
+
+                                    // دکمه حذف این صفحه (در صورت وجود بیش از ۱ صفحه)
+                                    if (pages.size > 1) {
+                                        IconButton(
+                                            onClick = { onDeletePage(page) },
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.DeleteOutline,
+                                                contentDescription = "حذف صفحه",
+                                                tint = MaterialTheme.colorScheme.error,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onOpenDocument) {
+                Text("مشاهده کل پرونده")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("بستن")
+            }
+        }
+    )
 }
 
 @Composable
@@ -443,11 +890,13 @@ fun EmptyDocumentsPlaceholder(
                 color = TextPrimary
             )
             Text(
-                text = "با لمس دکمه «دوربین» از مدارک عکس بگیرید یا از «گالری» سند وارد کنید و با فیلتر فتوکپی کیفیت آن را ارتقا دهید.",
+                text = "با لمس دکمه «اسکن سند جدید» عکس بگیرید و در صورت تمایل برگه‌های متعددی را به همین پرونده اضافه کنید.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = TextSecondary,
-                lineHeight = 22.sp
+                lineHeight = 22.sp,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
             )
         }
     }
 }
+

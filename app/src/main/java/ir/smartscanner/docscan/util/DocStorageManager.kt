@@ -22,7 +22,7 @@ object DocStorageManager {
     private const val DOCS_DIR_NAME = "documents"
 
     /**
-     * دریافت لیست مدارک ذخیره‌شده محلی
+     * دریافت لیست مدارک ذخیره‌شده محلی همراه با کلیه صفحات متعلق به هر شناسه مدرک
      */
     fun getAllDocuments(context: Context): List<DocumentItem> {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -37,7 +37,6 @@ object DocStorageManager {
                 val title = obj.optString("title")
                 val datePersian = obj.optString("datePersian")
                 val filterName = obj.optString("filter", ScanFilter.PHOTOCOPY.name)
-                val pageCount = obj.optInt("pageCount", 1)
                 val filePath = obj.optString("filePath")
 
                 val filter = try {
@@ -46,14 +45,48 @@ object DocStorageManager {
                     ScanFilter.PHOTOCOPY
                 }
 
-                // بارگذاری تصویر از مسیر فایل (در صورت وجود)
-                var bitmap: Bitmap? = null
-                if (filePath.isNotEmpty()) {
-                    val file = File(filePath)
-                    if (file.exists()) {
-                        bitmap = loadSampledBitmap(file.absolutePath, 400, 550)
+                // خواندن لیست صفحات ذخیره‌شده زیر این شناسه مدرک
+                val pages = mutableListOf<ir.smartscanner.docscan.model.DocumentPage>()
+                val pagesJsonArray = obj.optJSONArray("pages")
+                if (pagesJsonArray != null && pagesJsonArray.length() > 0) {
+                    for (p in 0 until pagesJsonArray.length()) {
+                        val pageObj = pagesJsonArray.getJSONObject(p)
+                        val pageId = pageObj.optString("id", "page_${p + 1}")
+                        val pageNum = pageObj.optInt("pageNumber", p + 1)
+                        val pagePath = pageObj.optString("filePath")
+                        val pageTime = pageObj.optLong("timestamp", System.currentTimeMillis())
+
+                        var pageBitmap: Bitmap? = null
+                        if (pagePath.isNotEmpty() && File(pagePath).exists()) {
+                            pageBitmap = loadSampledBitmap(pagePath, 400, 550)
+                        }
+
+                        pages.add(
+                            ir.smartscanner.docscan.model.DocumentPage(
+                                id = pageId,
+                                pageNumber = pageNum,
+                                filePath = pagePath,
+                                bitmap = pageBitmap,
+                                timestamp = pageTime
+                            )
+                        )
                     }
+                } else if (filePath.isNotEmpty() && File(filePath).exists()) {
+                    // سازگاری با اسناد تک‌صفحه‌ای قدیمی
+                    val singleBitmap = loadSampledBitmap(filePath, 400, 550)
+                    pages.add(
+                        ir.smartscanner.docscan.model.DocumentPage(
+                            id = "${id}_p1",
+                            pageNumber = 1,
+                            filePath = filePath,
+                            bitmap = singleBitmap
+                        )
+                    )
                 }
+
+                // تصویر شاخص سند
+                val primaryBitmap = pages.firstOrNull()?.bitmap
+                    ?: if (filePath.isNotEmpty() && File(filePath).exists()) loadSampledBitmap(filePath, 400, 550) else null
 
                 list.add(
                     DocumentItem(
@@ -61,9 +94,10 @@ object DocStorageManager {
                         title = title,
                         datePersian = datePersian,
                         filter = filter,
-                        pageCount = pageCount,
-                        filePath = filePath,
-                        bitmap = bitmap
+                        pageCount = pages.size.coerceAtLeast(1),
+                        pages = pages,
+                        filePath = pages.firstOrNull()?.filePath ?: filePath,
+                        bitmap = primaryBitmap
                     )
                 )
             }
@@ -87,7 +121,7 @@ object DocStorageManager {
         val datePersian = getPersianDateNow()
 
         val finalTitle = title.trim().ifEmpty { "سند اسکن‌شده - $datePersian" }
-        val safeFileName = "SCAN_${System.currentTimeMillis()}.jpg"
+        val safeFileName = "SCAN_${docId}_p1_${System.currentTimeMillis()}.jpg"
         val targetFile = File(docsDir, safeFileName)
 
         try {
@@ -99,30 +133,49 @@ object DocStorageManager {
             e.printStackTrace()
         }
 
+        val firstPage = ir.smartscanner.docscan.model.DocumentPage(
+            id = "${docId}_page_1",
+            pageNumber = 1,
+            filePath = targetFile.absolutePath,
+            bitmap = bitmap
+        )
+
         val newItem = DocumentItem(
             id = docId,
             title = finalTitle,
             datePersian = datePersian,
             filter = filter,
             pageCount = 1,
+            pages = listOf(firstPage),
             filePath = targetFile.absolutePath,
             bitmap = bitmap
         )
 
-        // افزودن به ابتدای لیست در SharedPreferences
+        // ذخیره در SharedPreferences با آرایه صفحات
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val currentJson = prefs.getString(KEY_DOCUMENTS_JSON, "[]")
         try {
             val oldArray = JSONArray(currentJson)
             val newArray = JSONArray()
 
+            val pagesArray = JSONArray().apply {
+                val pageObj = JSONObject().apply {
+                    put("id", firstPage.id)
+                    put("pageNumber", firstPage.pageNumber)
+                    put("filePath", firstPage.filePath)
+                    put("timestamp", firstPage.timestamp)
+                }
+                put(pageObj)
+            }
+
             val newObj = JSONObject().apply {
                 put("id", newItem.id)
                 put("title", newItem.title)
                 put("datePersian", newItem.datePersian)
                 put("filter", newItem.filter.name)
-                put("pageCount", newItem.pageCount)
+                put("pageCount", 1)
                 put("filePath", newItem.filePath)
+                put("pages", pagesArray)
                 put("timestamp", System.currentTimeMillis())
             }
             newArray.put(newObj)
@@ -143,7 +196,162 @@ object DocStorageManager {
     }
 
     /**
-     * حذف کامل یک مدرک از دیسک و SharedPreferences
+     * افزودن یک صفحه جدید به یک شناسه سند موجود در همان جلسه اسکن
+     */
+    fun addPageToDocument(
+        context: Context,
+        docId: String,
+        bitmap: Bitmap
+    ): DocumentItem? {
+        val docsDir = File(context.filesDir, DOCS_DIR_NAME).apply { if (!exists()) mkdirs() }
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val currentJson = prefs.getString(KEY_DOCUMENTS_JSON, "[]")
+
+        try {
+            val oldArray = JSONArray(currentJson)
+            val newArray = JSONArray()
+            var updatedItem: DocumentItem? = null
+
+            for (i in 0 until oldArray.length()) {
+                val obj = oldArray.getJSONObject(i)
+                if (obj.optString("id") == docId) {
+                    var pagesArray = obj.optJSONArray("pages")
+                    if (pagesArray == null) {
+                        pagesArray = JSONArray()
+                        val oldFilePath = obj.optString("filePath")
+                        if (oldFilePath.isNotEmpty()) {
+                            pagesArray.put(JSONObject().apply {
+                                put("id", "${docId}_p1")
+                                put("pageNumber", 1)
+                                put("filePath", oldFilePath)
+                                put("timestamp", System.currentTimeMillis())
+                            })
+                        }
+                    }
+
+                    val nextNum = pagesArray.length() + 1
+                    val newPageFileName = "SCAN_${docId}_p${nextNum}_${System.currentTimeMillis()}.jpg"
+                    val pageFile = File(docsDir, newPageFileName)
+
+                    FileOutputStream(pageFile).use { out ->
+                        bitmap.compress(Bitmap.CompressFormat.JPEG, 92, out)
+                        out.flush()
+                    }
+
+                    val newPageObj = JSONObject().apply {
+                        put("id", "${docId}_p${nextNum}_${System.currentTimeMillis()}")
+                        put("pageNumber", nextNum)
+                        put("filePath", pageFile.absolutePath)
+                        put("timestamp", System.currentTimeMillis())
+                    }
+                    pagesArray.put(newPageObj)
+
+                    obj.put("pages", pagesArray)
+                    obj.put("pageCount", pagesArray.length())
+
+                    // ساخت مدل به‌روزشده
+                    val pagesList = mutableListOf<ir.smartscanner.docscan.model.DocumentPage>()
+                    for (p in 0 until pagesArray.length()) {
+                        val pObj = pagesArray.getJSONObject(p)
+                        val pPath = pObj.optString("filePath")
+                        val pBmp = if (File(pPath).exists()) loadSampledBitmap(pPath, 400, 550) else null
+                        pagesList.add(
+                            ir.smartscanner.docscan.model.DocumentPage(
+                                id = pObj.optString("id"),
+                                pageNumber = pObj.optInt("pageNumber", p + 1),
+                                filePath = pPath,
+                                bitmap = pBmp,
+                                timestamp = pObj.optLong("timestamp", System.currentTimeMillis())
+                            )
+                        )
+                    }
+
+                    val filterName = obj.optString("filter", ScanFilter.PHOTOCOPY.name)
+                    val filter = try { ScanFilter.valueOf(filterName) } catch (e: Exception) { ScanFilter.PHOTOCOPY }
+
+                    updatedItem = DocumentItem(
+                        id = docId,
+                        title = obj.optString("title"),
+                        datePersian = obj.optString("datePersian"),
+                        filter = filter,
+                        pageCount = pagesList.size,
+                        pages = pagesList,
+                        filePath = pagesList.firstOrNull()?.filePath ?: obj.optString("filePath"),
+                        bitmap = pagesList.firstOrNull()?.bitmap
+                    )
+
+                    newArray.put(obj)
+                } else {
+                    newArray.put(obj)
+                }
+            }
+
+            prefs.edit().putString(KEY_DOCUMENTS_JSON, newArray.toString()).apply()
+            return updatedItem
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return null
+        }
+    }
+
+    /**
+     * حذف یک صفحه خاص از یک سند چندصفحه‌ای زیر شناسه سند مشخص
+     */
+    fun deletePageFromDocument(
+        context: Context,
+        docId: String,
+        pageId: String
+    ): DocumentItem? {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val currentJson = prefs.getString(KEY_DOCUMENTS_JSON, "[]")
+
+        try {
+            val oldArray = JSONArray(currentJson)
+            val newArray = JSONArray()
+            var updatedItem: DocumentItem? = null
+
+            for (i in 0 until oldArray.length()) {
+                val obj = oldArray.getJSONObject(i)
+                if (obj.optString("id") == docId) {
+                    val pagesArray = obj.optJSONArray("pages") ?: JSONArray()
+                    val newPagesArray = JSONArray()
+                    var renumbered = 1
+
+                    for (p in 0 until pagesArray.length()) {
+                        val pObj = pagesArray.getJSONObject(p)
+                        if (pObj.optString("id") == pageId) {
+                            val pPath = pObj.optString("filePath")
+                            if (pPath.isNotEmpty()) {
+                                File(pPath).delete()
+                            }
+                        } else {
+                            pObj.put("pageNumber", renumbered++)
+                            newPagesArray.put(pObj)
+                        }
+                    }
+
+                    obj.put("pages", newPagesArray)
+                    obj.put("pageCount", newPagesArray.length())
+                    if (newPagesArray.length() > 0) {
+                        obj.put("filePath", newPagesArray.getJSONObject(0).optString("filePath"))
+                    }
+
+                    newArray.put(obj)
+                } else {
+                    newArray.put(obj)
+                }
+            }
+
+            prefs.edit().putString(KEY_DOCUMENTS_JSON, newArray.toString()).apply()
+            return getAllDocuments(context).find { it.id == docId }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return null
+        }
+    }
+
+    /**
+     * حذف کامل یک مدرک و تمام صفحات آن از دیسک و SharedPreferences
      */
     fun deleteDocument(context: Context, docId: String): Boolean {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -160,8 +368,18 @@ object DocStorageManager {
                     val filePath = obj.optString("filePath")
                     if (filePath.isNotEmpty()) {
                         val file = File(filePath)
-                        if (file.exists()) {
-                            file.delete()
+                        if (file.exists()) file.delete()
+                    }
+
+                    // حذف تمام صفحات ذخیره‌شده
+                    val pagesArray = obj.optJSONArray("pages")
+                    if (pagesArray != null) {
+                        for (p in 0 until pagesArray.length()) {
+                            val pPath = pagesArray.getJSONObject(p).optString("filePath")
+                            if (pPath.isNotEmpty()) {
+                                val pFile = File(pPath)
+                                if (pFile.exists()) pFile.delete()
+                            }
                         }
                     }
                     deleted = true

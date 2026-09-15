@@ -80,6 +80,9 @@ fun SmartScannerApp() {
     var capturedRawBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var capturedDocTitle by remember { mutableStateOf<String>("") }
 
+    // شناسه سند هدف برای افزودن صفحه به یک جلسه اسکن موجود (Multiple pages under single Document ID)
+    var targetDocIdForNewPage by remember { mutableStateOf<String?>(null) }
+
     // هدایت بلافاصله به صفحه تنظیم کادر و برش پرسپکتیو (PerspectiveCropView) به جای پیش‌نمایش ساده
     fun openCropScreenForNewCapture(bitmap: Bitmap, title: String) {
         capturedRawBitmap = bitmap
@@ -188,9 +191,26 @@ fun SmartScannerApp() {
                     refreshDocuments()
                     Toast.makeText(context, "مدرک با موفقیت حذف شد", Toast.LENGTH_SHORT).show()
                 },
-                onLaunchCamera = onLaunchCamera,
+                onLaunchCamera = {
+                    targetDocIdForNewPage = null
+                    onLaunchCamera()
+                },
                 onLaunchGallery = {
+                    targetDocIdForNewPage = null
                     galleryLauncher.launch("image/*")
+                },
+                onAddPageToDocument = { docId, useCamera ->
+                    targetDocIdForNewPage = docId
+                    if (useCamera) {
+                        onLaunchCamera()
+                    } else {
+                        galleryLauncher.launch("image/*")
+                    }
+                },
+                onDeletePageFromDocument = { docId, pageId ->
+                    DocStorageManager.deletePageFromDocument(context, docId, pageId)
+                    refreshDocuments()
+                    Toast.makeText(context, "صفحه مورد نظر حذف شد", Toast.LENGTH_SHORT).show()
                 }
             )
         }
@@ -202,23 +222,51 @@ fun SmartScannerApp() {
                 PerspectiveCropView(
                     initialBitmap = rawBitmap,
                     onConfirmCrop = { processedBitmap ->
-                        // پس از تأیید نهایی، متغیر وضعیت تصویر پردازش‌شده به صفحه نمایش نهایی ارسال می‌شود
-                        val newDocId = "new_${System.currentTimeMillis()}"
-                        val newDoc = DocumentItem(
-                            id = newDocId,
-                            title = capturedDocTitle.ifEmpty { "سند اسکن‌شده - ${DocStorageManager.getPersianDateNow()}" },
-                            datePersian = DocStorageManager.getPersianDateNow(),
-                            filter = ScanFilter.PHOTOCOPY,
-                            pageCount = 1,
-                            bitmap = processedBitmap
-                        )
-                        pendingDocument = newDoc
-                        // هدایت مطمئن به صفحه پیش‌نمایش و خارج کردن صفحه برش از BackStack
-                        navController.navigate(Screen.Preview.createRoute(newDocId)) {
-                            popUpTo(Screen.Crop.route) { inclusive = true }
+                        val currentTargetDocId = targetDocIdForNewPage
+                        if (currentTargetDocId != null) {
+                            // افزودن صفحه جدید به یک جلسه اسکن موجود تحت شناسه سند یکتا
+                            val updatedDoc = DocStorageManager.addPageToDocument(
+                                context = context,
+                                docId = currentTargetDocId,
+                                bitmap = processedBitmap
+                            )
+                            refreshDocuments()
+                            targetDocIdForNewPage = null
+                            capturedRawBitmap = null
+                            if (updatedDoc != null) {
+                                Toast.makeText(
+                                    context,
+                                    "برگه جدید (صفحه ${updatedDoc.pages.size}) با موفقیت به سند «${updatedDoc.title}» افزوده شد",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                                navController.navigate(Screen.Preview.createRoute(currentTargetDocId)) {
+                                    popUpTo(Screen.Crop.route) { inclusive = true }
+                                }
+                            } else {
+                                navController.navigate(Screen.Home.route) {
+                                    popUpTo(Screen.Crop.route) { inclusive = true }
+                                }
+                            }
+                        } else {
+                            // ایجاد سند جدید مستقل
+                            val newDocId = "new_${System.currentTimeMillis()}"
+                            val newDoc = DocumentItem(
+                                id = newDocId,
+                                title = capturedDocTitle.ifEmpty { "سند اسکن‌شده - ${DocStorageManager.getPersianDateNow()}" },
+                                datePersian = DocStorageManager.getPersianDateNow(),
+                                filter = ScanFilter.PHOTOCOPY,
+                                pageCount = 1,
+                                bitmap = processedBitmap
+                            )
+                            pendingDocument = newDoc
+                            // هدایت مطمئن به صفحه پیش‌نمایش و خارج کردن صفحه برش از BackStack
+                            navController.navigate(Screen.Preview.createRoute(newDocId)) {
+                                popUpTo(Screen.Crop.route) { inclusive = true }
+                            }
                         }
                     },
                     onCancel = {
+                        targetDocIdForNewPage = null
                         capturedRawBitmap = null
                         navController.popBackStack()
                     }
