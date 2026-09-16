@@ -2,20 +2,29 @@ package ir.smartscanner.docscan.ui.screens
 
 import android.graphics.Bitmap
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoFixHigh
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Contrast
 import androidx.compose.material.icons.filled.Crop
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Share
@@ -39,9 +48,7 @@ import ir.smartscanner.docscan.ui.components.PerspectiveCropView
 import ir.smartscanner.docscan.ui.theme.*
 import ir.smartscanner.docscan.util.DocFilterEngine
 import ir.smartscanner.docscan.util.DocStorageManager
-import ir.smartscanner.docscan.util.PdfExportEngine
 import kotlinx.coroutines.launch
-import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -66,18 +73,11 @@ fun PreviewScreen(
     }
     var showRenameDialog by remember { mutableStateOf(false) }
 
-    // مدیریت صفحات سند در صورت وجود چند صفحه
-    val pages = document?.pages ?: emptyList()
-    var currentPageIndex by remember(document?.id) { mutableStateOf(0) }
-
-    // بیت‌مپ خام منبع: بر اساس صفحه انتخابی یا تصویر اصلی سند
-    val initialBitmap = remember(document?.id, currentPageIndex) {
-        if (pages.isNotEmpty() && currentPageIndex in pages.indices) {
-            val page = pages[currentPageIndex]
-            page.bitmap ?: (page.filePath?.let { DocStorageManager.loadSampledBitmap(it, 1600, 2200) })
-        } else {
-            document?.bitmap ?: (document?.filePath?.let { DocStorageManager.loadSampledBitmap(it, 1600, 2200) })
-        } ?: DocFilterEngine.createSampleDocBitmap(docTitle)
+    // بیت‌مپ خام منبع: یا از تصویر فایل/حافظه یا ساخت نمونه
+    val initialBitmap = remember(document?.id) {
+        document?.bitmap
+            ?: (document?.filePath?.let { DocStorageManager.loadSampledBitmap(it, 1600, 2200) })
+            ?: DocFilterEngine.createSampleDocBitmap(docTitle)
     }
 
     // بیت‌مپ فعال جاری (قبل از فیلتر، پس از اعمال برش‌های پرسپکتیو)
@@ -87,13 +87,33 @@ fun PreviewScreen(
     var processedBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var isProcessing by remember { mutableStateOf(false) }
 
+    // برگه‌های اضافی اضافه شده به سند برای تبدیل چند برگه به یک PDF واحد
+    var additionalPages by remember { mutableStateOf(listOf<Bitmap>()) }
+    var selectedPageIndex by remember { mutableIntStateOf(0) }
+    var isGeneratingPdf by remember { mutableStateOf(false) }
+
+    val allPages = remember(processedBitmap, currentRawBitmap, additionalPages) {
+        val firstPage = processedBitmap ?: currentRawBitmap
+        listOf(firstPage) + additionalPages
+    }
+
+    // انتخابی چند تصویر از گالری جهت افزودن برگه‌های جدید به PDF
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetMultipleContents()
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            val loaded = uris.mapNotNull { uri ->
+                DocStorageManager.loadBitmapFromUri(context, uri)
+            }
+            if (loaded.isNotEmpty()) {
+                additionalPages = additionalPages + loaded
+                Toast.makeText(context, "${loaded.size} برگه جدید به سند اضافه شد", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     // وضعیت فعال بودن حالت برش ۴ گوشه و پرسپکتیو
     var isCropModeOpen by remember { mutableStateOf(false) }
-
-    // وضعیت دیالوگ ساخت و خروجی فایل PDF چندصفحه‌ای
-    var showPdfExportDialog by remember { mutableStateOf(false) }
-    var isExportingPdf by remember { mutableStateOf(false) }
-    var pdfExportProgress by remember { mutableStateOf("") }
 
     // اعمال فیلتر هوشمند هر زمان تصویر پایه یا فیلتر تغییر کند
     LaunchedEffect(currentRawBitmap, selectedFilter) {
@@ -121,126 +141,317 @@ fun PreviewScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            TopAppBar(
-                title = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.clickable { showRenameDialog = true }
-                    ) {
-                        Text(
-                            text = docTitle,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimary,
-                            maxLines = 1
-                        )
-                        Icon(
-                            imageVector = Icons.Default.Edit,
-                            contentDescription = "ویرایش نام",
-                            tint = TextTertiary,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "بازگشت",
-                            tint = TextPrimary
-                        )
-                    }
-                },
-                actions = {
-                    // دکمه اختصاصی خروجی PDF چندصفحه‌ای
-                    FilledTonalButton(
-                        onClick = { showPdfExportDialog = true },
-                        colors = ButtonDefaults.filledTonalButtonColors(
-                            containerColor = Color(0xFFFFEBEE),
-                            contentColor = Color(0xFFC62828)
-                        ),
-                        shape = RoundedCornerShape(10.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                        modifier = Modifier.padding(end = 4.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Print,
-                            contentDescription = "خروجی PDF",
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "PDF",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
+            Column(modifier = Modifier.fillMaxWidth()) {
+                TopAppBar(
+                    title = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.clickable { showRenameDialog = true }
+                        ) {
+                            Text(
+                                text = docTitle,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary,
+                                maxLines = 1
+                            )
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = "ویرایش نام",
+                                tint = TextTertiary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "بازگشت",
+                                tint = TextPrimary
+                            )
+                        }
+                    },
+                    actions = {
+                        // دکمه اشتراک‌گذاری
+                        IconButton(
+                            onClick = {
+                                val bmp = processedBitmap ?: currentRawBitmap
+                                coroutineScope.launch {
+                                    DocFilterEngine.shareBitmap(
+                                        context = context,
+                                        bitmap = bmp,
+                                        title = docTitle
+                                    )
+                                }
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Share,
+                                contentDescription = "اشتراک‌گذاری",
+                                tint = PrimaryBlue
+                            )
+                        }
 
-                    // دکمه اشتراک‌گذاری تصویر تک‌برگه
-                    IconButton(
-                        onClick = {
-                            val bmp = processedBitmap ?: currentRawBitmap
-                            coroutineScope.launch {
-                                DocFilterEngine.shareBitmap(
-                                    context = context,
-                                    bitmap = bmp,
-                                    title = docTitle
-                                )
+                        // دکمه ذخیره در حافظه محلی و ساخت PDF
+                        Button(
+                            onClick = {
+                                val bmp = processedBitmap ?: currentRawBitmap
+                                coroutineScope.launch {
+                                    DocStorageManager.saveDocument(
+                                        context = context,
+                                        title = docTitle,
+                                        filter = selectedFilter,
+                                        bitmap = bmp
+                                    )
+                                    val pdfFile = DocStorageManager.createMultiPagePdf(
+                                        context = context,
+                                        pages = allPages,
+                                        title = docTitle
+                                    )
+                                    Toast.makeText(
+                                        context,
+                                        "مدرک «$docTitle» و فایل PDF (${allPages.size} برگه) ذخیره شد",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                    onSaveSuccess()
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                            modifier = Modifier.padding(start = 4.dp, end = 6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Save,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "ذخیره",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = SurfaceLight
+                    )
+                )
+
+                // نوار مدرن و ارگونومیک با سایه ملایم جهت تبدیل همزمان برگه‌ها به یک PDF واحد
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = Color(0xFFFAFAFC),
+                    shadowElevation = 1.dp,
+                    border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Surface(
+                                    color = Color(0xFFFEE2E2),
+                                    shape = RoundedCornerShape(8.dp),
+                                    shadowElevation = 1.dp,
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Default.PictureAsPdf,
+                                            contentDescription = null,
+                                            tint = Color(0xFFDC2626),
+                                            modifier = Modifier.size(17.dp)
+                                        )
+                                    }
+                                }
+                                Column {
+                                    Text(
+                                        text = "تبدیل به PDF واحد",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TextPrimary,
+                                        fontSize = 13.sp
+                                    )
+                                    Text(
+                                        text = "${allPages.size} برگه انتخاب‌شده",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Color(0xFF64748B),
+                                        fontSize = 10.sp
+                                    )
+                                }
+                            }
+
+                            // دکمه ساخت و دانلود PDF واحد
+                            Button(
+                                onClick = {
+                                    coroutineScope.launch {
+                                        isGeneratingPdf = true
+                                        try {
+                                            val pdfFile = DocStorageManager.createMultiPagePdf(
+                                                context = context,
+                                                pages = allPages,
+                                                title = docTitle
+                                            )
+                                            Toast.makeText(
+                                                context,
+                                                "فایل PDF با ${allPages.size} برگه با موفقیت تولید شد",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                            DocStorageManager.sharePdfFile(context, pdfFile, docTitle)
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "خطا در ساخت PDF", Toast.LENGTH_SHORT).show()
+                                        } finally {
+                                            isGeneratingPdf = false
+                                        }
+                                    }
+                                },
+                                enabled = !isGeneratingPdf,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF059669),
+                                    contentColor = Color.White
+                                ),
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp)
+                            ) {
+                                if (isGeneratingPdf) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp,
+                                        color = Color.White
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.Download,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(5.dp))
+                                    Text(
+                                        text = "دانلود PDF واحد",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                             }
                         }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Share,
-                            contentDescription = "اشتراک‌گذاری تصویر",
-                            tint = PrimaryBlue
-                        )
-                    }
 
-                    // دکمه ذخیره در حافظه محلی دائمی
-                    Button(
-                        onClick = {
-                            val bmp = processedBitmap ?: currentRawBitmap
-                            coroutineScope.launch {
-                                DocStorageManager.saveDocument(
-                                    context = context,
-                                    title = docTitle,
-                                    filter = selectedFilter,
-                                    bitmap = bmp
-                                )
-                                Toast.makeText(
-                                    context,
-                                    "مدرک «$docTitle» با موفقیت ذخیره شد",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                                onSaveSuccess()
+                        // ردیف اسکرول برگه‌ها و دکمه افزودن برگه با سایه و طراحی ارگونومیک
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // دکمه افزودن برگه
+                            item {
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = Color(0xFFF0F9FF),
+                                    border = BorderStroke(1.dp, Color(0xFFBAE6FD)),
+                                    shadowElevation = 1.dp,
+                                    modifier = Modifier.clickable { imagePickerLauncher.launch("image/*") }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                    ) {
+                                        Surface(
+                                            color = Color(0xFFBAE6FD),
+                                            shape = RoundedCornerShape(6.dp),
+                                            modifier = Modifier.size(18.dp)
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Add,
+                                                    contentDescription = "افزودن برگه",
+                                                    tint = PrimaryBlue,
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                            }
+                                        }
+                                        Text(
+                                            text = "افزودن برگه",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = PrimaryBlue
+                                        )
+                                    }
+                                }
                             }
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = Color.White
-                        ),
-                        shape = RoundedCornerShape(10.dp),
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                        modifier = Modifier.padding(start = 4.dp, end = 6.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Save,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "ذخیره",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold
-                        )
+
+                            // لیست برگه‌ها
+                            itemsIndexed(allPages) { index, _ ->
+                                val isSelected = selectedPageIndex == index
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = if (isSelected) PrimaryBlueContainer else Color.White,
+                                    shadowElevation = if (isSelected) 2.dp else 1.dp,
+                                    border = BorderStroke(
+                                        1.dp,
+                                        if (isSelected) PrimaryBlue else Color(0xFFE2E8F0)
+                                    ),
+                                    modifier = Modifier.clickable { selectedPageIndex = index }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.PictureAsPdf,
+                                            contentDescription = null,
+                                            tint = if (isSelected) PrimaryBlue else Color(0xFF94A3B8),
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Text(
+                                            text = if (index == 0) "برگه ۱ (اصلی)" else "برگه ${index + 1}",
+                                            fontSize = 11.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                            color = if (isSelected) OnPrimaryBlueContainer else TextSecondary
+                                        )
+                                        if (index > 0) {
+                                            IconButton(
+                                                onClick = {
+                                                    additionalPages = additionalPages.toMutableList().also {
+                                                        it.removeAt(index - 1)
+                                                    }
+                                                    if (selectedPageIndex >= allPages.size - 1) {
+                                                        selectedPageIndex = 0
+                                                    }
+                                                },
+                                                modifier = Modifier.size(20.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Close,
+                                                    contentDescription = "حذف برگه",
+                                                    tint = Color(0xFFDC2626),
+                                                    modifier = Modifier.size(13.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = SurfaceLight
-                )
-            )
+                }
+            }
         },
         bottomBar = {
             // نوار ابزار پایین با دکمه برش و ۴ حالت فیلتر
@@ -397,7 +608,7 @@ fun PreviewScreen(
                         .padding(8.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    val displayBitmap = processedBitmap ?: currentRawBitmap
+                    val displayBitmap = if (selectedPageIndex in allPages.indices) allPages[selectedPageIndex] else (processedBitmap ?: currentRawBitmap)
                     Image(
                         bitmap = displayBitmap.asImageBitmap(),
                         contentDescription = docTitle,
@@ -422,63 +633,6 @@ fun PreviewScreen(
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                         )
-                    }
-
-                    // نشانگر چندصفحه‌ای در گوشه بالا سمت چپ (در صورت وجود بیش از ۱ صفحه)
-                    if (pages.size > 1) {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = Color.Black.copy(alpha = 0.75f),
-                            modifier = Modifier
-                                .align(Alignment.TopStart)
-                                .padding(10.dp)
-                        ) {
-                            Text(
-                                text = "صفحه ${currentPageIndex + 1} از ${pages.size}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
-                            )
-                        }
-
-                        // دکمه‌های جابجایی بین صفحات در پایین تصویر
-                        Row(
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .padding(bottom = 12.dp)
-                                .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(20.dp))
-                                .padding(horizontal = 8.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            IconButton(
-                                onClick = {
-                                    if (currentPageIndex > 0) currentPageIndex--
-                                },
-                                enabled = currentPageIndex > 0,
-                                modifier = Modifier.size(32.dp)
-                            ) {
-                                Text("‹", color = if (currentPageIndex > 0) Color.White else Color.Gray, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                            }
-
-                            Text(
-                                text = "برگه ${currentPageIndex + 1} / ${pages.size}",
-                                color = Color.White,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-
-                            IconButton(
-                                onClick = {
-                                    if (currentPageIndex < pages.size - 1) currentPageIndex++
-                                },
-                                enabled = currentPageIndex < pages.size - 1,
-                                modifier = Modifier.size(32.dp)
-                            ) {
-                                Text("›", color = if (currentPageIndex < pages.size - 1) Color.White else Color.Gray, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
                     }
 
                     // نشانگر در حال پردازش در صورت لودینگ
@@ -552,239 +706,6 @@ fun PreviewScreen(
             }
         )
     }
-
-    // دیالوگ هوشمند خروجی PDF چندصفحه‌ای
-    if (showPdfExportDialog && document != null) {
-        MultiPagePdfExportDialog(
-            document = document,
-            docTitle = docTitle,
-            isExporting = isExportingPdf,
-            progressText = pdfExportProgress,
-            onDismiss = { if (!isExportingPdf) showPdfExportDialog = false },
-            onConfirmExport = { selectedIndices ->
-                isExportingPdf = true
-                pdfExportProgress = "آماده‌سازی صفحات..."
-                coroutineScope.launch {
-                    val pdfFile = PdfExportEngine.generateMultiPagePdf(
-                        context = context,
-                        doc = document.copy(title = docTitle),
-                        selectedPageIndices = selectedIndices,
-                        onProgress = { cur, tot ->
-                            pdfExportProgress = "در حال پردازش برگه $cur از $tot در قالب A4..."
-                        }
-                    )
-                    isExportingPdf = false
-                    showPdfExportDialog = false
-                    if (pdfFile != null) {
-                        Toast.makeText(context, "فایل PDF چندصفحه‌ای با موفقیت ایجاد شد", Toast.LENGTH_SHORT).show()
-                        PdfExportEngine.sharePdfFile(context, pdfFile, docTitle)
-                    } else {
-                        Toast.makeText(context, "خطا در تولید فایل PDF", Toast.LENGTH_LONG).show()
-                    }
-                }
-            }
-        )
-    }
-}
-
-@Composable
-fun MultiPagePdfExportDialog(
-    document: DocumentItem,
-    docTitle: String,
-    isExporting: Boolean,
-    progressText: String,
-    onDismiss: () -> Unit,
-    onConfirmExport: (selectedIndices: List<Int>) -> Unit
-) {
-    val totalPages = document.pages.size.coerceAtLeast(1)
-    val selectedIndices = remember {
-        mutableStateListOf<Int>().apply {
-            addAll(0 until totalPages)
-        }
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color(0xFFFFEBEE),
-                    modifier = Modifier.size(36.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Default.Print,
-                            contentDescription = null,
-                            tint = Color(0xFFC62828),
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
-                Column {
-                    Text(
-                        text = "خروجی PDF چندصفحه‌ای",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "استاندارد کاغذ اداری A4",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.Gray
-                    )
-                }
-            }
-        },
-        text = {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Text(
-                    text = "سند: $docTitle",
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-
-                if (isExporting) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        CircularProgressIndicator(
-                            color = Color(0xFFC62828),
-                            modifier = Modifier.size(36.dp)
-                        )
-                        Text(
-                            text = progressText.ifEmpty { "در حال تجمیع برگه‌ها در فایل PDF..." },
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                } else {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "صفحات جهت افزودن به PDF (${selectedIndices.size} از $totalPages):",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        TextButton(
-                            onClick = {
-                                if (selectedIndices.size == totalPages) {
-                                    selectedIndices.clear()
-                                } else {
-                                    selectedIndices.clear()
-                                    selectedIndices.addAll(0 until totalPages)
-                                }
-                            }
-                        ) {
-                            Text(
-                                text = if (selectedIndices.size == totalPages) "لغو همه" else "انتخاب همه",
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                        }
-                    }
-
-                    // لیست صفحات با امکان انتخاب
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        for (i in 0 until totalPages) {
-                            val isChecked = selectedIndices.contains(i)
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = if (isChecked) Color(0xFFF1F8E9) else Color(0xFFF5F5F5),
-                                border = androidx.compose.foundation.BorderStroke(
-                                    1.dp,
-                                    if (isChecked) Color(0xFF81C784) else Color(0xFFE0E0E0)
-                                ),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        if (isChecked) {
-                                            if (selectedIndices.size > 1) selectedIndices.remove(i)
-                                        } else {
-                                            selectedIndices.add(i)
-                                            selectedIndices.sort()
-                                        }
-                                    }
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(
-                                        text = "برگه شماره ${i + 1}",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = if (isChecked) FontWeight.Bold else FontWeight.Normal
-                                    )
-                                    Checkbox(
-                                        checked = isChecked,
-                                        onCheckedChange = { checked ->
-                                            if (checked) {
-                                                if (!selectedIndices.contains(i)) {
-                                                    selectedIndices.add(i)
-                                                    selectedIndices.sort()
-                                                }
-                                            } else {
-                                                if (selectedIndices.size > 1) selectedIndices.remove(i)
-                                            }
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    Text(
-                        text = "• هر صفحه با رزولوشن اصلی در قالب پرینت استاندارد A4 با مارجین متناسب جای‌گذاری خواهد شد.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.Gray,
-                        lineHeight = 16.sp
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    if (selectedIndices.isNotEmpty() && !isExporting) {
-                        onConfirmExport(selectedIndices.toList())
-                    }
-                },
-                enabled = selectedIndices.isNotEmpty() && !isExporting,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFFC62828),
-                    contentColor = Color.White
-                ),
-                shape = RoundedCornerShape(10.dp)
-            ) {
-                Text("تولید و اشتراک‌گذاری PDF", fontWeight = FontWeight.Bold)
-            }
-        },
-        dismissButton = {
-            if (!isExporting) {
-                TextButton(onClick = onDismiss) {
-                    Text("انصراف")
-                }
-            }
-        }
-    )
 }
 
 @Composable

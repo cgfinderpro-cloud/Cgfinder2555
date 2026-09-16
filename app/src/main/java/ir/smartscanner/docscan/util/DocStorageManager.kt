@@ -1,15 +1,25 @@
 package ir.smartscanner.docscan.util
 
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.RectF
+import android.graphics.pdf.PdfDocument
+import android.net.Uri
+import androidx.core.content.FileProvider
 import ir.smartscanner.docscan.model.DocumentItem
 import ir.smartscanner.docscan.model.ScanFilter
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 /**
  * سیستم ذخیره‌سازی محلی کاملاً سبک و سریع با SharedPreferences و JSON نیتیو اندروید
@@ -22,7 +32,7 @@ object DocStorageManager {
     private const val DOCS_DIR_NAME = "documents"
 
     /**
-     * دریافت لیست مدارک ذخیره‌شده محلی همراه با کلیه صفحات متعلق به هر شناسه مدرک
+     * دریافت لیست مدارک ذخیره‌شده محلی
      */
     fun getAllDocuments(context: Context): List<DocumentItem> {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -37,6 +47,7 @@ object DocStorageManager {
                 val title = obj.optString("title")
                 val datePersian = obj.optString("datePersian")
                 val filterName = obj.optString("filter", ScanFilter.PHOTOCOPY.name)
+                val pageCount = obj.optInt("pageCount", 1)
                 val filePath = obj.optString("filePath")
 
                 val filter = try {
@@ -45,48 +56,14 @@ object DocStorageManager {
                     ScanFilter.PHOTOCOPY
                 }
 
-                // خواندن لیست صفحات ذخیره‌شده زیر این شناسه مدرک
-                val pages = mutableListOf<ir.smartscanner.docscan.model.DocumentPage>()
-                val pagesJsonArray = obj.optJSONArray("pages")
-                if (pagesJsonArray != null && pagesJsonArray.length() > 0) {
-                    for (p in 0 until pagesJsonArray.length()) {
-                        val pageObj = pagesJsonArray.getJSONObject(p)
-                        val pageId = pageObj.optString("id", "page_${p + 1}")
-                        val pageNum = pageObj.optInt("pageNumber", p + 1)
-                        val pagePath = pageObj.optString("filePath")
-                        val pageTime = pageObj.optLong("timestamp", System.currentTimeMillis())
-
-                        var pageBitmap: Bitmap? = null
-                        if (pagePath.isNotEmpty() && File(pagePath).exists()) {
-                            pageBitmap = loadSampledBitmap(pagePath, 400, 550)
-                        }
-
-                        pages.add(
-                            ir.smartscanner.docscan.model.DocumentPage(
-                                id = pageId,
-                                pageNumber = pageNum,
-                                filePath = pagePath,
-                                bitmap = pageBitmap,
-                                timestamp = pageTime
-                            )
-                        )
+                // بارگذاری تصویر از مسیر فایل (در صورت وجود)
+                var bitmap: Bitmap? = null
+                if (filePath.isNotEmpty()) {
+                    val file = File(filePath)
+                    if (file.exists()) {
+                        bitmap = loadSampledBitmap(file.absolutePath, 400, 550)
                     }
-                } else if (filePath.isNotEmpty() && File(filePath).exists()) {
-                    // سازگاری با اسناد تک‌صفحه‌ای قدیمی
-                    val singleBitmap = loadSampledBitmap(filePath, 400, 550)
-                    pages.add(
-                        ir.smartscanner.docscan.model.DocumentPage(
-                            id = "${id}_p1",
-                            pageNumber = 1,
-                            filePath = filePath,
-                            bitmap = singleBitmap
-                        )
-                    )
                 }
-
-                // تصویر شاخص سند
-                val primaryBitmap = pages.firstOrNull()?.bitmap
-                    ?: if (filePath.isNotEmpty() && File(filePath).exists()) loadSampledBitmap(filePath, 400, 550) else null
 
                 list.add(
                     DocumentItem(
@@ -94,10 +71,9 @@ object DocStorageManager {
                         title = title,
                         datePersian = datePersian,
                         filter = filter,
-                        pageCount = pages.size.coerceAtLeast(1),
-                        pages = pages,
-                        filePath = pages.firstOrNull()?.filePath ?: filePath,
-                        bitmap = primaryBitmap
+                        pageCount = pageCount,
+                        filePath = filePath,
+                        bitmap = bitmap
                     )
                 )
             }
@@ -121,7 +97,7 @@ object DocStorageManager {
         val datePersian = getPersianDateNow()
 
         val finalTitle = title.trim().ifEmpty { "سند اسکن‌شده - $datePersian" }
-        val safeFileName = "SCAN_${docId}_p1_${System.currentTimeMillis()}.jpg"
+        val safeFileName = "SCAN_${System.currentTimeMillis()}.jpg"
         val targetFile = File(docsDir, safeFileName)
 
         try {
@@ -133,49 +109,30 @@ object DocStorageManager {
             e.printStackTrace()
         }
 
-        val firstPage = ir.smartscanner.docscan.model.DocumentPage(
-            id = "${docId}_page_1",
-            pageNumber = 1,
-            filePath = targetFile.absolutePath,
-            bitmap = bitmap
-        )
-
         val newItem = DocumentItem(
             id = docId,
             title = finalTitle,
             datePersian = datePersian,
             filter = filter,
             pageCount = 1,
-            pages = listOf(firstPage),
             filePath = targetFile.absolutePath,
             bitmap = bitmap
         )
 
-        // ذخیره در SharedPreferences با آرایه صفحات
+        // افزودن به ابتدای لیست در SharedPreferences
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val currentJson = prefs.getString(KEY_DOCUMENTS_JSON, "[]")
         try {
             val oldArray = JSONArray(currentJson)
             val newArray = JSONArray()
 
-            val pagesArray = JSONArray().apply {
-                val pageObj = JSONObject().apply {
-                    put("id", firstPage.id)
-                    put("pageNumber", firstPage.pageNumber)
-                    put("filePath", firstPage.filePath)
-                    put("timestamp", firstPage.timestamp)
-                }
-                put(pageObj)
-            }
-
             val newObj = JSONObject().apply {
                 put("id", newItem.id)
                 put("title", newItem.title)
                 put("datePersian", newItem.datePersian)
                 put("filter", newItem.filter.name)
-                put("pageCount", 1)
+                put("pageCount", newItem.pageCount)
                 put("filePath", newItem.filePath)
-                put("pages", pagesArray)
                 put("timestamp", System.currentTimeMillis())
             }
             newArray.put(newObj)
@@ -196,162 +153,7 @@ object DocStorageManager {
     }
 
     /**
-     * افزودن یک صفحه جدید به یک شناسه سند موجود در همان جلسه اسکن
-     */
-    fun addPageToDocument(
-        context: Context,
-        docId: String,
-        bitmap: Bitmap
-    ): DocumentItem? {
-        val docsDir = File(context.filesDir, DOCS_DIR_NAME).apply { if (!exists()) mkdirs() }
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val currentJson = prefs.getString(KEY_DOCUMENTS_JSON, "[]")
-
-        try {
-            val oldArray = JSONArray(currentJson)
-            val newArray = JSONArray()
-            var updatedItem: DocumentItem? = null
-
-            for (i in 0 until oldArray.length()) {
-                val obj = oldArray.getJSONObject(i)
-                if (obj.optString("id") == docId) {
-                    var pagesArray = obj.optJSONArray("pages")
-                    if (pagesArray == null) {
-                        pagesArray = JSONArray()
-                        val oldFilePath = obj.optString("filePath")
-                        if (oldFilePath.isNotEmpty()) {
-                            pagesArray.put(JSONObject().apply {
-                                put("id", "${docId}_p1")
-                                put("pageNumber", 1)
-                                put("filePath", oldFilePath)
-                                put("timestamp", System.currentTimeMillis())
-                            })
-                        }
-                    }
-
-                    val nextNum = pagesArray.length() + 1
-                    val newPageFileName = "SCAN_${docId}_p${nextNum}_${System.currentTimeMillis()}.jpg"
-                    val pageFile = File(docsDir, newPageFileName)
-
-                    FileOutputStream(pageFile).use { out ->
-                        bitmap.compress(Bitmap.CompressFormat.JPEG, 92, out)
-                        out.flush()
-                    }
-
-                    val newPageObj = JSONObject().apply {
-                        put("id", "${docId}_p${nextNum}_${System.currentTimeMillis()}")
-                        put("pageNumber", nextNum)
-                        put("filePath", pageFile.absolutePath)
-                        put("timestamp", System.currentTimeMillis())
-                    }
-                    pagesArray.put(newPageObj)
-
-                    obj.put("pages", pagesArray)
-                    obj.put("pageCount", pagesArray.length())
-
-                    // ساخت مدل به‌روزشده
-                    val pagesList = mutableListOf<ir.smartscanner.docscan.model.DocumentPage>()
-                    for (p in 0 until pagesArray.length()) {
-                        val pObj = pagesArray.getJSONObject(p)
-                        val pPath = pObj.optString("filePath")
-                        val pBmp = if (File(pPath).exists()) loadSampledBitmap(pPath, 400, 550) else null
-                        pagesList.add(
-                            ir.smartscanner.docscan.model.DocumentPage(
-                                id = pObj.optString("id"),
-                                pageNumber = pObj.optInt("pageNumber", p + 1),
-                                filePath = pPath,
-                                bitmap = pBmp,
-                                timestamp = pObj.optLong("timestamp", System.currentTimeMillis())
-                            )
-                        )
-                    }
-
-                    val filterName = obj.optString("filter", ScanFilter.PHOTOCOPY.name)
-                    val filter = try { ScanFilter.valueOf(filterName) } catch (e: Exception) { ScanFilter.PHOTOCOPY }
-
-                    updatedItem = DocumentItem(
-                        id = docId,
-                        title = obj.optString("title"),
-                        datePersian = obj.optString("datePersian"),
-                        filter = filter,
-                        pageCount = pagesList.size,
-                        pages = pagesList,
-                        filePath = pagesList.firstOrNull()?.filePath ?: obj.optString("filePath"),
-                        bitmap = pagesList.firstOrNull()?.bitmap
-                    )
-
-                    newArray.put(obj)
-                } else {
-                    newArray.put(obj)
-                }
-            }
-
-            prefs.edit().putString(KEY_DOCUMENTS_JSON, newArray.toString()).apply()
-            return updatedItem
-        } catch (e: Exception) {
-            e.printStackTrace()
-            return null
-        }
-    }
-
-    /**
-     * حذف یک صفحه خاص از یک سند چندصفحه‌ای زیر شناسه سند مشخص
-     */
-    fun deletePageFromDocument(
-        context: Context,
-        docId: String,
-        pageId: String
-    ): DocumentItem? {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val currentJson = prefs.getString(KEY_DOCUMENTS_JSON, "[]")
-
-        try {
-            val oldArray = JSONArray(currentJson)
-            val newArray = JSONArray()
-            var updatedItem: DocumentItem? = null
-
-            for (i in 0 until oldArray.length()) {
-                val obj = oldArray.getJSONObject(i)
-                if (obj.optString("id") == docId) {
-                    val pagesArray = obj.optJSONArray("pages") ?: JSONArray()
-                    val newPagesArray = JSONArray()
-                    var renumbered = 1
-
-                    for (p in 0 until pagesArray.length()) {
-                        val pObj = pagesArray.getJSONObject(p)
-                        if (pObj.optString("id") == pageId) {
-                            val pPath = pObj.optString("filePath")
-                            if (pPath.isNotEmpty()) {
-                                File(pPath).delete()
-                            }
-                        } else {
-                            pObj.put("pageNumber", renumbered++)
-                            newPagesArray.put(pObj)
-                        }
-                    }
-
-                    obj.put("pages", newPagesArray)
-                    obj.put("pageCount", newPagesArray.length())
-                    if (newPagesArray.length() > 0) {
-                        obj.put("filePath", newPagesArray.getJSONObject(0).optString("filePath"))
-                    }
-
-                    newArray.put(obj)
-                } else {
-                    newArray.put(obj)
-                }
-            }
-
-            prefs.edit().putString(KEY_DOCUMENTS_JSON, newArray.toString()).apply()
-            return getAllDocuments(context).find { it.id == docId }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            return null
-        }
-    }
-
-    /**
-     * حذف کامل یک مدرک و تمام صفحات آن از دیسک و SharedPreferences
+     * حذف کامل یک مدرک از دیسک و SharedPreferences
      */
     fun deleteDocument(context: Context, docId: String): Boolean {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -368,18 +170,8 @@ object DocStorageManager {
                     val filePath = obj.optString("filePath")
                     if (filePath.isNotEmpty()) {
                         val file = File(filePath)
-                        if (file.exists()) file.delete()
-                    }
-
-                    // حذف تمام صفحات ذخیره‌شده
-                    val pagesArray = obj.optJSONArray("pages")
-                    if (pagesArray != null) {
-                        for (p in 0 until pagesArray.length()) {
-                            val pPath = pagesArray.getJSONObject(p).optString("filePath")
-                            if (pPath.isNotEmpty()) {
-                                val pFile = File(pPath)
-                                if (pFile.exists()) pFile.delete()
-                            }
+                        if (file.exists()) {
+                            file.delete()
                         }
                     }
                     deleted = true
@@ -489,5 +281,102 @@ object DocStorageManager {
         val jd = jDayOfYear
 
         return JalaliDate(jy, jm, jd)
+    }
+
+    /**
+     * بارگذاری ایمن Bitmap از Uri انتخاب شده از گالری
+     */
+    fun loadBitmapFromUri(context: Context, uri: Uri): Bitmap? {
+        return try {
+            context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                BitmapFactory.decodeStream(inputStream)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    /**
+     * تبدیل چند تصویر/برگه اسکن‌شده به یک فایل PDF استاندارد واحد A4
+     * کاملاً آفلاین و نیتیو با android.graphics.pdf.PdfDocument بدون نیاز به کتابخانه‌های خارجی
+     */
+    fun createMultiPagePdf(
+        context: Context,
+        pages: List<Bitmap>,
+        title: String
+    ): File {
+        val pdfDocument = PdfDocument()
+        // ابعاد استاندارد برگه A4 در مقیاس 72DPI: ۵۹۵ در ۸۴۲ پوینت
+        val a4Width = 595
+        val a4Height = 842
+
+        for (i in pages.indices) {
+            val pageInfo = PdfDocument.PageInfo.Builder(a4Width, a4Height, i + 1).create()
+            val page = pdfDocument.startPage(pageInfo)
+            val canvas = page.canvas
+
+            // زمینه سفید کاغذ A4
+            canvas.drawColor(Color.WHITE)
+
+            val bmp = pages[i]
+            val margin = 24f
+            val maxW = a4Width - (margin * 2)
+            val maxH = a4Height - (margin * 2)
+
+            val bmpW = bmp.width.toFloat()
+            val bmpH = bmp.height.toFloat()
+            val scale = minOf(maxW / bmpW, maxH / bmpH)
+
+            val destW = bmpW * scale
+            val destH = bmpH * scale
+            val left = margin + (maxW - destW) / 2f
+            val top = margin + (maxH - destH) / 2f
+
+            val destRect = RectF(left, top, left + destW, top + destH)
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                isFilterBitmap = true
+            }
+            canvas.drawBitmap(bmp, null, destRect, paint)
+
+            pdfDocument.finishPage(page)
+        }
+
+        val docsDir = File(context.filesDir, DOCS_DIR_NAME).apply { if (!exists()) mkdirs() }
+        val cleanTitle = title.trim().replace("\\s+".toRegex(), "_").ifEmpty { "document" }
+        val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+        val pdfFile = File(docsDir, "PDF_${cleanTitle}_$timeStamp.pdf")
+
+        FileOutputStream(pdfFile).use { out ->
+            pdfDocument.writeTo(out)
+            out.flush()
+        }
+        pdfDocument.close()
+        return pdfFile
+    }
+
+    /**
+     * اشتراک‌گذاری یا ذخیره فایل PDF از طریق Intent به پیام‌رسان‌ها و برنامه‌های نمایش پی‌دی‌اف
+     */
+    fun sharePdfFile(context: Context, pdfFile: File, title: String) {
+        try {
+            val contentUri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                pdfFile
+            )
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "application/pdf"
+                putExtra(Intent.EXTRA_STREAM, contentUri)
+                putExtra(Intent.EXTRA_SUBJECT, title)
+                putExtra(Intent.EXTRA_TEXT, "فایل PDF مدرک اسکن‌شده: $title")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            val chooser = Intent.createChooser(shareIntent, "ارسال یا ذخیره PDF با:")
+            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(chooser)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 }

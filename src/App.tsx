@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { jsPDF } from 'jspdf';
 import { processDocumentImage } from './utils/docFilterSimulator';
 import { 
   Camera, 
@@ -18,7 +17,6 @@ import {
   Smartphone, 
   ShieldCheck, 
   ChevronLeft,
-  ChevronRight,
   Search,
   MoreVertical,
   Upload,
@@ -28,32 +26,19 @@ import {
   Wand2,
   Maximize2,
   Plus,
-  Trash2,
-  FilePlus,
   X,
-  CheckSquare,
-  Square
+  FilePlus
 } from 'lucide-react';
+import { jsPDF } from 'jspdf';
 
 type FilterType = 'photocopy' | 'bw' | 'color' | 'original';
 
-export interface DocumentPage {
-  id: string;
-  pageNumber: number;
-  title: string;
-  imageSrc?: string;
-  filter?: FilterType;
-  datePersian?: string;
-  timestamp?: number;
-}
-
-export interface DocumentItem {
+interface DocumentItem {
   id: string;
   title: string;
   datePersian: string;
   filter: FilterType;
   pageCount: number;
-  pages: DocumentPage[];
   imageSrc?: string;
 }
 
@@ -64,52 +49,13 @@ const INITIAL_DOCUMENTS: DocumentItem[] = [
     datePersian: '۲۲ اردیبهشت ۱۴۰۳',
     filter: 'photocopy',
     pageCount: 2,
-    pages: [
-      {
-        id: 'p-1-1',
-        pageNumber: 1,
-        title: 'صفحه اول - شناسنامه هویتی',
-        filter: 'photocopy',
-        datePersian: '۲۲ اردیبهشت ۱۴۰۳'
-      },
-      {
-        id: 'p-1-2',
-        pageNumber: 2,
-        title: 'صفحه دوم - کارت ملی هوشمند',
-        filter: 'photocopy',
-        datePersian: '۲۲ اردیبهشت ۱۴۰۳'
-      }
-    ]
   },
   {
     id: 'doc-2',
     title: 'قرارداد کاری و سفته بانکی',
     datePersian: '۱۸ اردیبهشت ۱۴۰۳',
     filter: 'color',
-    pageCount: 3,
-    pages: [
-      {
-        id: 'p-2-1',
-        pageNumber: 1,
-        title: 'صفحه اول - مشخصات طرفین قرارداد',
-        filter: 'color',
-        datePersian: '۱۸ اردیبهشت ۱۴۰۳'
-      },
-      {
-        id: 'p-2-2',
-        pageNumber: 2,
-        title: 'صفحه دوم - شرایط و تعهدات',
-        filter: 'color',
-        datePersian: '۱۸ اردیبهشت ۱۴۰۳'
-      },
-      {
-        id: 'p-2-3',
-        pageNumber: 3,
-        title: 'صفحه سوم - سفته و ضمانت بانکی',
-        filter: 'color',
-        datePersian: '۱۸ اردیبهشت ۱۴۰۳'
-      }
-    ]
+    pageCount: 4,
   },
   {
     id: 'doc-3',
@@ -117,71 +63,8 @@ const INITIAL_DOCUMENTS: DocumentItem[] = [
     datePersian: '۱۰ اردیبهشت ۱۴۰۳',
     filter: 'bw',
     pageCount: 1,
-    pages: [
-      {
-        id: 'p-3-1',
-        pageNumber: 1,
-        title: 'صفحه اصلی - گواهی رسمی',
-        filter: 'bw',
-        datePersian: '۱۰ اردیبهشت ۱۴۰۳'
-      }
-    ]
   },
 ];
-
-// تابع رسم صفحه شبیه‌سازی‌شده در صورت عدم وجود تصویر فایل برای PDF
-function drawFallbackDocCanvas(
-  canvas: HTMLCanvasElement, 
-  ctx: CanvasRenderingContext2D, 
-  title: string, 
-  pageNum: number, 
-  total: number
-) {
-  canvas.width = 1240;
-  canvas.height = 1754;
-  ctx.fillStyle = '#FFFFFF';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  // کادر حاشیه استاندارد اسناد اداری
-  ctx.strokeStyle = '#CBD5E1';
-  ctx.lineWidth = 4;
-  ctx.strokeRect(50, 50, canvas.width - 100, canvas.height - 100);
-
-  // سربرگ رسمی سند
-  ctx.fillStyle = '#0284C7';
-  ctx.fillRect(90, 90, 180, 24);
-
-  // عنوان سند
-  ctx.fillStyle = '#0F172A';
-  ctx.font = 'bold 36px Tahoma, sans-serif';
-  ctx.textAlign = 'right';
-  ctx.fillText(title || `برگه شماره ${pageNum}`, canvas.width - 100, 130);
-
-  // شماره برگه و تاریخ
-  ctx.fillStyle = '#64748B';
-  ctx.font = '22px Tahoma, sans-serif';
-  ctx.textAlign = 'left';
-  ctx.fillText(`برگه ${pageNum} از ${total}`, 100, 170);
-
-  // خطوط شبیه‌سازی محتوای اداری
-  ctx.fillStyle = '#94A3B8';
-  for (let lineY = 240; lineY < 1420; lineY += 65) {
-    const lineWidth = lineY % 130 === 0 ? canvas.width - 280 : canvas.width - 200;
-    ctx.fillRect(100, lineY, lineWidth, 14);
-  }
-
-  // مهر برجسته رسمی و هولوگرام
-  ctx.strokeStyle = '#EF4444';
-  ctx.lineWidth = 6;
-  ctx.beginPath();
-  ctx.arc(canvas.width - 260, canvas.height - 260, 90, 0, Math.PI * 2);
-  ctx.stroke();
-
-  ctx.fillStyle = '#EF4444';
-  ctx.font = 'bold 26px Tahoma, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText('تأیید اسکن هوشمند', canvas.width - 260, canvas.height - 250);
-}
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<'home' | 'crop' | 'preview'>('home');
@@ -194,12 +77,6 @@ export default function App() {
   const [customImage, setCustomImage] = useState<string | null>(null);
   const [processedPreviewUrl, setProcessedPreviewUrl] = useState<string | null>(null);
   const [isProcessingFilter, setIsProcessingFilter] = useState(false);
-
-  // وضعیت‌های خروجی فایل چندصفحه‌ای PDF
-  const [showPdfExportModal, setShowPdfExportModal] = useState<boolean>(false);
-  const [selectedPdfPageIndices, setSelectedPdfPageIndices] = useState<number[]>([]);
-  const [isGeneratingPdf, setIsGeneratingPdf] = useState<boolean>(false);
-  const [pdfExportProgressText, setPdfExportProgressText] = useState<string>('');
 
   // وضعیت‌های تصویر گرفته‌شده از دوربین یا انتخاب‌شده از گالری قبل از برش
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
@@ -219,163 +96,26 @@ export default function App() {
   const cropContainerRef = useRef<HTMLDivElement>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const multiPageFileInputRef = useRef<HTMLInputElement>(null);
+
+  // برگه‌های اضافی اضافه شده به سند برای تبدیل همزمان چند برگه به یک PDF واحد
+  const [additionalPages, setAdditionalPages] = useState<string[]>([]);
+  const [selectedPageIndex, setSelectedPageIndex] = useState<number>(0);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3500);
   };
 
-  const [targetDocIdForNewPage, setTargetDocIdForNewPage] = useState<string | null>(null);
-  const [managePagesDocId, setManagePagesDocId] = useState<string | null>(null);
-  const [activePageIndex, setActivePageIndex] = useState<number>(0);
-
   const activeDoc = documents.find(d => d.id === activeDocId) || documents[0];
-  const activePage = activeDoc?.pages && activeDoc.pages[activePageIndex] 
-    ? activeDoc.pages[activePageIndex] 
-    : activeDoc?.pages?.[0];
 
-  const handleOpenDoc = (id: string, pageIdx: number = 0) => {
+  const handleOpenDoc = (id: string) => {
     const doc = documents.find(d => d.id === id);
     if (doc) {
       setActiveDocId(id);
-      setActivePageIndex(pageIdx);
-      setSelectedFilter(doc.pages?.[pageIdx]?.filter || doc.filter);
+      setSelectedFilter(doc.filter);
       setCurrentScreen('preview');
-    }
-  };
-
-  // افزودن صفحه به یک سند موجود با استفاده از شناسه سند
-  const handleAddPageToDoc = (docId: string, useCamera: boolean = true) => {
-    setTargetDocIdForNewPage(docId);
-    setManagePagesDocId(null);
-    if (useCamera) {
-      handleSimulateCameraCapture();
-    } else {
-      handleCameraCapture();
-    }
-  };
-
-  // حذف صفحه از سند چندصفحه‌ای
-  const handleDeletePageFromDoc = (docId: string, pageId: string) => {
-    setDocuments(prev => prev.map(doc => {
-      if (doc.id === docId && doc.pages.length > 1) {
-        const filteredPages = doc.pages.filter(p => p.id !== pageId);
-        const renumbered = filteredPages.map((p, idx) => ({ ...p, pageNumber: idx + 1 }));
-        return {
-          ...doc,
-          pages: renumbered,
-          pageCount: renumbered.length
-        };
-      }
-      return doc;
-    }));
-    setActivePageIndex(0);
-    showToast('صفحه مورد نظر از سند حذف شد');
-  };
-
-  // باز کردن پنجره تبدیل چند صفحه به خروجی نهایی PDF
-  const handleOpenPdfModal = () => {
-    const docPages = activeDoc.pages || [];
-    const count = docPages.length > 0 ? docPages.length : 1;
-    setSelectedPdfPageIndices(Array.from({ length: count }, (_, i) => i));
-    setShowPdfExportModal(true);
-  };
-
-  // ساخت و دانلود فایل PDF چندصفحه‌ای استاندارد A4
-  const handleExportMultiPagePdf = async (indices: number[]) => {
-    if (indices.length === 0) return;
-    setIsGeneratingPdf(true);
-    setPdfExportProgressText('آماده‌سازی بستر برگه استاندارد A4...');
-
-    try {
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'pt',
-        format: 'a4' // 595.28 x 841.89 pt
-      });
-
-      const pageWidth = 595.28;
-      const pageHeight = 841.89;
-      const margin = 24;
-      const usableWidth = pageWidth - margin * 2;
-      const usableHeight = pageHeight - margin * 2 - 28;
-
-      const docPages = activeDoc.pages && activeDoc.pages.length > 0
-        ? activeDoc.pages
-        : [{
-            id: 'p-default',
-            pageNumber: 1,
-            title: activeDoc.title,
-            imageSrc: customImage || activeDoc.imageSrc,
-            filter: selectedFilter
-          }];
-
-      for (let i = 0; i < indices.length; i++) {
-        const pageIdx = indices[i];
-        const pageData = docPages[pageIdx] || docPages[0];
-        setPdfExportProgressText(`در حال تبدیل و تجمیع برگه ${i + 1} از ${indices.length}...`);
-
-        if (i > 0) {
-          pdf.addPage('a4', 'portrait');
-        }
-
-        const pageCanvas = document.createElement('canvas');
-        const ctx = pageCanvas.getContext('2d');
-        if (!ctx) continue;
-
-        const imgSrc = (pageIdx === activePageIndex && processedPreviewUrl)
-          ? processedPreviewUrl
-          : pageData.imageSrc || (pageIdx === activePageIndex ? customImage : undefined) || activeDoc.imageSrc;
-
-        if (imgSrc) {
-          await new Promise<void>((resolve) => {
-            const img = new Image();
-            img.crossOrigin = 'anonymous';
-            img.onload = () => {
-              pageCanvas.width = img.naturalWidth || 1240;
-              pageCanvas.height = img.naturalHeight || 1754;
-              ctx.fillStyle = '#FFFFFF';
-              ctx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
-              ctx.drawImage(img, 0, 0);
-              resolve();
-            };
-            img.onerror = () => {
-              drawFallbackDocCanvas(pageCanvas, ctx, pageData.title || `برگه شماره ${pageIdx + 1}`, i + 1, indices.length);
-              resolve();
-            };
-            img.src = imgSrc;
-          });
-        } else {
-          drawFallbackDocCanvas(pageCanvas, ctx, pageData.title || `برگه شماره ${pageIdx + 1}`, i + 1, indices.length);
-        }
-
-        const imgDataUrl = pageCanvas.toDataURL('image/jpeg', 0.92);
-        const imgWidth = pageCanvas.width;
-        const imgHeight = pageCanvas.height;
-        const scale = Math.min(usableWidth / imgWidth, usableHeight / imgHeight);
-        const renderW = imgWidth * scale;
-        const renderH = imgHeight * scale;
-        const renderX = margin + (usableWidth - renderW) / 2;
-        const renderY = margin + (usableHeight - renderH) / 2;
-
-        pdf.addImage(imgDataUrl, 'JPEG', renderX, renderY, renderW, renderH, undefined, 'FAST');
-
-        // درج شماره برگه در پاورقی استاندارد
-        pdf.setFontSize(9);
-        pdf.setTextColor(110, 110, 110);
-        pdf.text(`Page ${i + 1} of ${indices.length}`, pageWidth / 2, pageHeight - 12, { align: 'center' });
-      }
-
-      const safeDocName = (activeDoc.title || 'document').replace(/[^a-zA-Z0-9آ-ی\s_-]/g, '').trim() || 'ScanDocument';
-      pdf.save(`${safeDocName}.pdf`);
-
-      showToast(`فایل PDF چندصفحه‌ای «${safeDocName}.pdf» با موفقیت دانلود شد`);
-      setShowPdfExportModal(false);
-    } catch (err) {
-      console.error('PDF export error:', err);
-      showToast('خطا در تولید فایل PDF');
-    } finally {
-      setIsGeneratingPdf(false);
     }
   };
 
@@ -549,7 +289,6 @@ export default function App() {
   // انصراف از صفحه PerspectiveCropView و بازگشت به صفحه اصلی
   const handleCancelCrop = () => {
     setCapturedImage(null);
-    setTargetDocIdForNewPage(null);
     setCurrentScreen('home');
     showToast('عملیات برش و تراز کادر لغو شد');
   };
@@ -564,63 +303,17 @@ export default function App() {
     const finalProcessedImage = capturedImage || customImage || activeDoc.imageSrc;
     setCustomImage(finalProcessedImage);
 
-    if (targetDocIdForNewPage) {
-      const targetId = targetDocIdForNewPage;
-      let targetDocTitle = '';
-      let newPageIdx = 0;
-      setDocuments(prev => prev.map(doc => {
-        if (doc.id === targetId) {
-          targetDocTitle = doc.title;
-          const newPageNum = (doc.pages?.length || 0) + 1;
-          newPageIdx = (doc.pages?.length || 0);
-          const newPage: DocumentPage = {
-            id: `p-${Date.now()}`,
-            pageNumber: newPageNum,
-            title: `برگه ${newPageNum}`,
-            imageSrc: finalProcessedImage,
-            filter: selectedFilter,
-            datePersian: 'امروز'
-          };
-          const updatedPages = [...(doc.pages || []), newPage];
-          return {
-            ...doc,
-            pages: updatedPages,
-            pageCount: updatedPages.length
-          };
-        }
-        return doc;
-      }));
-
-      setActiveDocId(targetId);
-      setActivePageIndex(newPageIdx);
-      setTargetDocIdForNewPage(null);
-      setCurrentScreen('preview');
-      showToast(`برگه جدید با موفقیت به سند «${targetDocTitle || 'اسکن جاری'}» افزوده شد`);
-      return;
-    }
-
     const newDocId = `doc-${Date.now()}`;
-    const initialPage: DocumentPage = {
-      id: `p-${Date.now()}-1`,
-      pageNumber: 1,
-      title: 'صفحه اول',
-      imageSrc: finalProcessedImage,
-      filter: 'photocopy',
-      datePersian: 'امروز'
-    };
-
     const newDoc: DocumentItem = {
       id: newDocId,
       title: capturedTitle || 'سند اسکن‌شده جدید',
       datePersian: 'امروز',
       filter: 'photocopy',
       pageCount: 1,
-      pages: [initialPage],
       imageSrc: finalProcessedImage
     };
     setDocuments(prev => [newDoc, ...prev]);
     setActiveDocId(newDocId);
-    setActivePageIndex(0);
     setSelectedFilter('photocopy');
 
     // هدایت قطعی به صفحه نمایش نهایی (پیش‌نمایش سند در برگه سفید تمیز)
@@ -628,9 +321,97 @@ export default function App() {
     showToast('سند پردازش و تراز شد و در صفحه سفید تمیز پیش‌نمایش قرار گرفت');
   };
 
+  const handleAddMultiplePages = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      const fileList = Array.from(files);
+      const readers = fileList.map((file: File) => {
+        return new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = (evt) => {
+            resolve((evt.target?.result as string) || '');
+          };
+          reader.readAsDataURL(file);
+        });
+      });
+      Promise.all(readers).then(newImages => {
+        const validImages = newImages.filter(img => Boolean(img));
+        if (validImages.length > 0) {
+          setAdditionalPages(prev => [...prev, ...validImages]);
+          showToast(`${validImages.length} برگه جدید به سند اضافه شد`);
+        }
+      });
+    }
+    if (e.target) e.target.value = '';
+  };
+
+  const handleGenerateMultiPagePdf = async () => {
+    setIsGeneratingPdf(true);
+    try {
+      const firstPage = processedPreviewUrl || customImage || activeDoc.imageSrc || createGlossyDocumentTestImage();
+      const allPageImages = [firstPage, ...additionalPages];
+      
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      });
+
+      const pageWidth = 210;
+      const pageHeight = 297;
+      const margin = 10;
+      const printWidth = pageWidth - (margin * 2);
+      const printHeight = pageHeight - (margin * 2);
+
+      for (let i = 0; i < allPageImages.length; i++) {
+        if (i > 0) {
+          pdf.addPage();
+        }
+        
+        const imgData = allPageImages[i];
+        await new Promise<void>((resolve) => {
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          img.onload = () => {
+            const imgRatio = (img.width || 1) / (img.height || 1);
+            let w = printWidth;
+            let h = printWidth / imgRatio;
+            if (h > printHeight) {
+              h = printHeight;
+              w = printHeight * imgRatio;
+            }
+            const x = margin + (printWidth - w) / 2;
+            const y = margin + (printHeight - h) / 2;
+            pdf.addImage(imgData, 'JPEG', x, y, w, h, undefined, 'FAST');
+            resolve();
+          };
+          img.onerror = () => {
+            pdf.addImage(imgData, 'JPEG', margin, margin, printWidth, printHeight, undefined, 'FAST');
+            resolve();
+          };
+          img.src = imgData;
+        });
+      }
+
+      const safeName = (activeDoc?.title || 'document').trim().replace(/\s+/g, '_');
+      pdf.save(`${safeName}.pdf`);
+      showToast(`فایل PDF واحد (${allPageImages.length} برگه) با موفقیت تولید و دانلود شد`);
+    } catch (err) {
+      console.error('Error creating PDF:', err);
+      showToast('خطا در تبدیل و ساخت فایل PDF');
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
+
   const handleSaveFilter = () => {
-    setDocuments(prev => prev.map(d => d.id === activeDocId ? { ...d, filter: selectedFilter } : d));
-    showToast(`مدرک با فیلتر «${getFilterLabel(selectedFilter)}» ذخیره شد`);
+    setDocuments(prev => prev.map(d => d.id === activeDocId ? { 
+      ...d, 
+      filter: selectedFilter,
+      pageCount: 1 + additionalPages.length 
+    } : d));
+    handleGenerateMultiPagePdf();
+    showToast(`مدرک با فیلتر «${getFilterLabel(selectedFilter)}» و فایل PDF (${1 + additionalPages.length} برگه) ذخیره شد`);
   };
 
   const handleShare = () => {
@@ -1216,175 +997,6 @@ fun PerspectiveCropView(
     // Canvas جهت رسم خطوط چهارضلعی و ۴ دستگیره تعاملی لمسی
     // دکمه‌های بازنشانی کادر، تشخیص هوشمند لبه‌ها (Canny) و تأیید نهایی
 }`
-    },
-    'DocStorageManager.kt': {
-      lang: 'kotlin',
-      desc: 'مدیریت ذخیره‌سازی مدارک چندصفحه‌ای ذیل شناسه یکتای Document ID با JSON و آزادسازی حافظه محلی',
-      code: `package ir.smartscanner.docscan.util
-
-import android.content.Context
-import android.graphics.Bitmap
-import ir.smartscanner.docscan.model.DocumentItem
-import ir.smartscanner.docscan.model.DocumentPage
-import org.json.JSONArray
-import org.json.JSONObject
-import java.io.File
-import java.io.FileOutputStream
-
-object DocStorageManager {
-    // افزودن برگه جدید به سند موجود با استفاده از docId
-    fun addPageToDocument(context: Context, docId: String, bitmap: Bitmap, filter: String = "PHOTOCOPY"): Boolean {
-        val docs = getDocuments(context).toMutableList()
-        val index = docs.indexOfFirst { it.id == docId }
-        if (index == -1) return false
-
-        val doc = docs[index]
-        val pageNum = doc.pages.size + 1
-        val pageId = "page_\${System.currentTimeMillis()}"
-        val filename = "doc_\${docId}_\${pageId}.jpg"
-        val file = File(context.filesDir, filename)
-        FileOutputStream(file).use { out ->
-            bitmap.compress(Bitmap.CompressFormat.JPEG, 92, out)
-        }
-
-        val newPage = DocumentPage(
-            id = pageId,
-            pageNumber = pageNum,
-            filePath = file.absolutePath,
-            filter = filter
-        )
-        val updatedPages = doc.pages + newPage
-        docs[index] = doc.copy(pages = updatedPages, pageCount = updatedPages.size)
-        saveDocuments(context, docs)
-        return true
-    }
-
-    // حذف یک برگه از سند و پاکسازی فایل تصویر از دیسک
-    fun deletePageFromDocument(context: Context, docId: String, pageId: String): Boolean {
-        val docs = getDocuments(context).toMutableList()
-        val index = docs.indexOfFirst { it.id == docId }
-        if (index == -1) return false
-
-        val doc = docs[index]
-        val pageToRemove = doc.pages.find { it.id == pageId } ?: return false
-        try {
-            val f = File(pageToRemove.filePath)
-            if (f.exists()) f.delete()
-        } catch (_: Exception) {}
-
-        val remainingPages = doc.pages.filter { it.id != pageId }
-            .mapIndexed { idx, page -> page.copy(pageNumber = idx + 1) }
-        docs[index] = doc.copy(pages = remainingPages, pageCount = remainingPages.size)
-        saveDocuments(context, docs)
-        return true
-    }
-}`,
-    },
-    'PdfExportEngine.kt': {
-      lang: 'kotlin',
-      desc: 'موتور خروجی PDF چندصفحه‌ای اندروید: رندر صفحات در برگه استاندارد A4 (595x842pt) با شتاب سخت‌افزاری و FileProvider جهت اشتراک‌گذاری مستقیم',
-      code: `package ir.smartscanner.docscan.util
-
-import android.content.Context
-import android.content.Intent
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.Rect
-import android.graphics.RectF
-import android.graphics.pdf.PdfDocument
-import androidx.core.content.FileProvider
-import ir.smartscanner.docscan.model.DocumentItem
-import ir.smartscanner.docscan.model.DocumentPage
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import java.io.File
-import java.io.FileOutputStream
-
-object PdfExportEngine {
-    private const val PAGE_WIDTH_A4 = 595
-    private const val PAGE_HEIGHT_A4 = 842
-    private const val MARGIN_POINTS = 24
-
-    suspend fun exportAndShareMultiPagePdf(
-        context: Context,
-        document: DocumentItem,
-        selectedPageIds: Set<String> = emptySet(),
-        onProgress: (current: Int, total: Int) -> Unit = { _, _ -> }
-    ): Result<File> = withContext(Dispatchers.IO) {
-        try {
-            val pagesToExport: List<DocumentPage> = if (selectedPageIds.isEmpty()) {
-                document.pages
-            } else {
-                document.pages.filter { selectedPageIds.contains(it.id) }
-            }
-
-            if (pagesToExport.isEmpty()) {
-                return@withContext Result.failure(IllegalArgumentException("هیچ برگه‌ای انتخاب نشده است"))
-            }
-
-            val pdfDocument = PdfDocument()
-            val paint = Paint().apply { isAntiAlias = true; isFilterBitmap = true }
-            val footerPaint = Paint().apply {
-                color = Color.DKGRAY
-                textSize = 9f
-                isAntiAlias = true
-                textAlign = Paint.Align.CENTER
-            }
-
-            pagesToExport.forEachIndexed { index, page ->
-                onProgress(index + 1, pagesToExport.size)
-                val pageInfo = PdfDocument.PageInfo.Builder(PAGE_WIDTH_A4, PAGE_HEIGHT_A4, index + 1).create()
-                val pdfPage = pdfDocument.startPage(pageInfo)
-                val canvas: Canvas = pdfPage.canvas
-
-                canvas.drawColor(Color.WHITE)
-                val bitmap: Bitmap? = DocStorageManager.loadPageBitmap(page.filePath)
-
-                if (bitmap != null && !bitmap.isRecycled) {
-                    val usableWidth = (PAGE_WIDTH_A4 - MARGIN_POINTS * 2).toFloat()
-                    val usableHeight = (PAGE_HEIGHT_A4 - MARGIN_POINTS * 2 - 24).toFloat()
-
-                    val scale = minOf(usableWidth / bitmap.width.toFloat(), usableHeight / bitmap.height.toFloat())
-                    val renderW = bitmap.width * scale
-                    val renderH = bitmap.height * scale
-                    val renderX = MARGIN_POINTS + (usableWidth - renderW) / 2f
-                    val renderY = MARGIN_POINTS + (usableHeight - renderH) / 2f
-
-                    val srcRect = Rect(0, 0, bitmap.width, bitmap.height)
-                    val dstRect = RectF(renderX, renderY, renderX + renderW, renderY + renderH)
-                    canvas.drawBitmap(bitmap, srcRect, dstRect, paint)
-                }
-
-                canvas.drawText("Page \${index + 1} of \${pagesToExport.size}", (PAGE_WIDTH_A4 / 2).toFloat(), (PAGE_HEIGHT_A4 - 12).toFloat(), footerPaint)
-                pdfDocument.finishPage(pdfPage)
-            }
-
-            val outputDir = File(context.cacheDir, "pdf_exports").apply { if (!exists()) mkdirs() }
-            val sanitizedTitle = document.title.replace(Regex("[^a-zA-Z0-9_آ-ی]"), "_").take(30)
-            val pdfFile = File(outputDir, "\${sanitizedTitle}_\${System.currentTimeMillis()}.pdf")
-
-            FileOutputStream(pdfFile).use { outStream -> pdfDocument.writeTo(outStream) }
-            pdfDocument.close()
-
-            Result.success(pdfFile)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
-    fun sharePdfFile(context: Context, pdfFile: File, title: String) {
-        val uri = FileProvider.getUriForFile(context, "\${context.packageName}.fileprovider", pdfFile)
-        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-            type = "application/pdf"
-            putExtra(Intent.EXTRA_STREAM, uri)
-            putExtra(Intent.EXTRA_SUBJECT, title)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-        context.startActivity(Intent.createChooser(shareIntent, "ارسال فایل PDF چندصفحه‌ای"))
-    }
-}`
     }
   };
 
@@ -1398,6 +1010,16 @@ object PdfExportEngine {
         accept="image/*" 
         className="hidden" 
         id="camera-input"
+      />
+      {/* مخفی: ورودی انتخاب چند فایل جهت تبدیل همزمان برگه‌ها به PDF واحد */}
+      <input 
+        type="file" 
+        ref={multiPageFileInputRef} 
+        onChange={handleAddMultiplePages} 
+        accept="image/*" 
+        multiple
+        className="hidden" 
+        id="multi-page-input"
       />
 
       {/* نوار بالای پنل تست و مدیریت پروژه */}
@@ -1532,75 +1154,43 @@ object PdfExportEngine {
                       {documents.map((doc) => (
                         <div
                           key={doc.id}
-                          onClick={() => handleOpenDoc(doc.id, 0)}
-                          className="bg-white rounded-2xl p-3.5 border border-slate-200/80 shadow-sm hover:shadow-md transition-all cursor-pointer flex flex-col gap-2.5 active:scale-[0.99]"
+                          onClick={() => handleOpenDoc(doc.id)}
+                          className="bg-white rounded-2xl p-3.5 border border-slate-200/80 shadow-sm hover:shadow-md transition-all cursor-pointer flex items-center gap-3.5 active:scale-[0.99]"
                         >
-                          <div className="flex items-center gap-3.5">
-                            {/* عکس بندانگشتی شبیه‌سازی‌شده سند */}
-                            <div className="w-14 h-18 bg-slate-100 rounded-xl border border-slate-200 p-2 flex flex-col justify-between shrink-0 relative overflow-hidden">
-                              {doc.imageSrc || doc.pages?.[0]?.imageSrc ? (
-                                <img src={doc.imageSrc || doc.pages?.[0]?.imageSrc} alt="" className="w-full h-full object-cover rounded-md" />
-                              ) : (
-                                <>
-                                  <div className="w-6 h-1.5 bg-sky-500/70 rounded-full" />
-                                  <div className="space-y-1">
-                                    <div className="w-full h-1 bg-slate-300 rounded" />
-                                    <div className="w-4/5 h-1 bg-slate-300 rounded" />
-                                    <div className="w-3/5 h-1 bg-slate-300 rounded" />
-                                  </div>
-                                  <div className="w-4 h-4 rounded-full border border-red-400 flex items-center justify-center text-[7px] text-red-500 font-bold self-end">
-                                    مهر
-                                  </div>
-                                </>
-                              )}
-                            </div>
-
-                            {/* مشخصات سند */}
-                            <div className="flex-1 min-w-0">
-                              <h3 className="font-bold text-slate-900 text-sm truncate">{doc.title}</h3>
-                              <p className="text-xs text-slate-500 mt-0.5">تاریخ: {doc.datePersian}</p>
-                              <div className="flex items-center gap-2 mt-1.5">
-                                <span className="text-[10px] bg-sky-100 text-sky-800 px-2 py-0.5 rounded-md font-semibold">
-                                  {getFilterLabel(doc.filter)}
-                                </span>
-                                <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-md font-semibold">
-                                  {doc.pages?.length || doc.pageCount} برگه
-                                </span>
-                              </div>
-                            </div>
-
-                            <ChevronLeft className="w-4 h-4 text-slate-400 shrink-0" />
+                          {/* عکس بندانگشتی شبیه‌سازی‌شده سند */}
+                          <div className="w-14 h-18 bg-slate-100 rounded-xl border border-slate-200 p-2 flex flex-col justify-between shrink-0 relative overflow-hidden">
+                            {doc.imageSrc ? (
+                              <img src={doc.imageSrc} alt="" className="w-full h-full object-cover rounded-md" />
+                            ) : (
+                              <>
+                                <div className="w-6 h-1.5 bg-sky-500/70 rounded-full" />
+                                <div className="space-y-1">
+                                  <div className="w-full h-1 bg-slate-300 rounded" />
+                                  <div className="w-4/5 h-1 bg-slate-300 rounded" />
+                                  <div className="w-3/5 h-1 bg-slate-300 rounded" />
+                                </div>
+                                <div className="w-4 h-4 rounded-full border border-red-400 flex items-center justify-center text-[7px] text-red-500 font-bold self-end">
+                                  مهر
+                                </div>
+                              </>
+                            )}
                           </div>
 
-                          {/* نوار افقی پیش‌نمایش صفحات سند و دکمه مدیریت */}
-                          <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-1.5 overflow-x-auto py-0.5 max-w-[200px] scrollbar-none">
-                              {doc.pages?.map((p, idx) => (
-                                <button
-                                  key={p.id}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleOpenDoc(doc.id, idx);
-                                  }}
-                                  className="px-2 py-0.5 bg-slate-100 hover:bg-sky-100 hover:text-sky-700 text-[10px] text-slate-700 rounded-md border border-slate-200/80 font-medium shrink-0 transition-colors"
-                                  title={`مشاهده برگه ${idx + 1}`}
-                                >
-                                  برگه {idx + 1}
-                                </button>
-                              ))}
+                          {/* مشخصات سند */}
+                          <div className="flex-1 min-w-0">
+                            <h3 className="font-bold text-slate-900 text-sm truncate">{doc.title}</h3>
+                            <p className="text-xs text-slate-500 mt-1">تاریخ: {doc.datePersian}</p>
+                            <div className="flex items-center gap-2 mt-2">
+                              <span className="text-[10px] bg-sky-100 text-sky-800 px-2 py-0.5 rounded-md font-semibold">
+                                {getFilterLabel(doc.filter)}
+                              </span>
+                              <span className="text-[10px] text-slate-400">
+                                {doc.pageCount} صفحه
+                              </span>
                             </div>
-
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setManagePagesDocId(doc.id);
-                              }}
-                              className="px-2 py-1 bg-sky-50 hover:bg-sky-100 text-sky-700 rounded-lg text-[10px] font-bold flex items-center gap-1 shrink-0 transition-colors border border-sky-200/60"
-                            >
-                              <Plus className="w-3 h-3" />
-                              <span>مدیریت برگه‌ها</span>
-                            </button>
                           </div>
+
+                          <ChevronLeft className="w-4 h-4 text-slate-400 shrink-0" />
                         </div>
                       ))}
                     </div>
@@ -1641,91 +1231,6 @@ object PdfExportEngine {
                         <span>دوربین</span>
                       </button>
                     </div>
-
-                    {/* دیالوگ مدیریت صفحات سند بر اساس شناسه سند (Manage Pages Dialog) */}
-                    {managePagesDocId && (() => {
-                      const manageDoc = documents.find(d => d.id === managePagesDocId);
-                      if (!manageDoc) return null;
-                      return (
-                        <div className="absolute inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-3 animate-in fade-in duration-200">
-                          <div className="bg-white w-full max-h-[85%] rounded-3xl p-4 shadow-2xl flex flex-col gap-3 overflow-hidden border border-slate-200">
-                            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-                              <div>
-                                <h3 className="font-bold text-sm text-slate-900 leading-tight">مدیریت صفحات سند</h3>
-                                <p className="text-[11px] text-slate-500 truncate max-w-[200px]">{manageDoc.title}</p>
-                              </div>
-                              <button
-                                onClick={() => setManagePagesDocId(null)}
-                                className="p-1 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 transition-colors"
-                              >
-                                <X className="w-4 h-4" />
-                              </button>
-                            </div>
-
-                            {/* لیست صفحات سند */}
-                            <div className="flex-1 overflow-y-auto space-y-2 py-1 max-h-[250px]">
-                              {manageDoc.pages?.map((page, idx) => (
-                                <div
-                                  key={page.id}
-                                  className="flex items-center justify-between p-2 bg-slate-50 hover:bg-sky-50/50 rounded-xl border border-slate-200/70 transition-all"
-                                >
-                                  <div 
-                                    className="flex items-center gap-2.5 flex-1 cursor-pointer"
-                                    onClick={() => {
-                                      setManagePagesDocId(null);
-                                      handleOpenDoc(manageDoc.id, idx);
-                                    }}
-                                  >
-                                    <div className="w-8 h-10 rounded bg-white border border-slate-200 shadow-xs flex items-center justify-center text-xs font-bold text-sky-700 overflow-hidden shrink-0">
-                                      {page.imageSrc ? (
-                                        <img src={page.imageSrc} alt="" className="w-full h-full object-cover" />
-                                      ) : (
-                                        <span>{idx + 1}</span>
-                                      )}
-                                    </div>
-                                    <div className="min-w-0">
-                                      <div className="text-xs font-bold text-slate-800 truncate">{page.title || `برگه شماره ${idx + 1}`}</div>
-                                      <div className="text-[10px] text-slate-400">صفحه {idx + 1} از {manageDoc.pages.length}</div>
-                                    </div>
-                                  </div>
-
-                                  {manageDoc.pages.length > 1 && (
-                                    <button
-                                      onClick={() => handleDeletePageFromDoc(manageDoc.id, page.id)}
-                                      className="p-1.5 hover:bg-red-50 text-slate-400 hover:text-red-600 rounded-lg transition-colors"
-                                      title="حذف این صفحه"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    </button>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-
-                            {/* دکمه‌های افزودن صفحه جدید به این جلسه اسکن با دوربین یا گالری */}
-                            <div className="pt-2 border-t border-slate-100 space-y-2">
-                              <div className="text-[11px] font-bold text-slate-600">افزودن برگه جدید به این سند:</div>
-                              <div className="grid grid-cols-2 gap-2">
-                                <button
-                                  onClick={() => handleAddPageToDoc(manageDoc.id, true)}
-                                  className="py-2.5 px-3 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-md shadow-sky-600/20 active:scale-95 transition-all"
-                                >
-                                  <Camera className="w-3.5 h-3.5" />
-                                  <span>عکاسی با دوربین</span>
-                                </button>
-                                <button
-                                  onClick={() => handleAddPageToDoc(manageDoc.id, false)}
-                                  className="py-2.5 px-3 bg-teal-100 hover:bg-teal-200 text-teal-900 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 border border-teal-200 active:scale-95 transition-all"
-                                >
-                                  <ImageIcon className="w-3.5 h-3.5" />
-                                  <span>انتخاب از گالری</span>
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })()}
                   </div>
                 ) : currentScreen === 'crop' ? (
                   /* نمایش تعاملی کامپوننت ۴ گوشه و تصحیح پرسپکتیو (PerspectiveCropView) - بلافاصله پس از عکسبرداری */
@@ -1920,45 +1425,22 @@ object PdfExportEngine {
                         >
                           <ArrowRight className="w-5 h-5" />
                         </button>
-                        <div>
-                          <span className="font-bold text-xs sm:text-sm text-slate-900 truncate max-w-[130px] block">
-                            {activeDoc.title}
-                          </span>
-                          <span className="text-[10px] text-sky-700 font-semibold block">
-                            برگه {activePageIndex + 1} از {activeDoc.pages?.length || 1}
-                          </span>
-                        </div>
+                        <span className="font-bold text-sm text-slate-900 truncate max-w-[140px]">
+                          {activeDoc.title}
+                        </span>
                       </div>
 
                       <div className="flex items-center gap-1.5">
-                        {/* دکمه اختصاصی تبدیل چند صفحه به خروجی PDF نهایی */}
-                        <button
-                          onClick={handleOpenPdfModal}
-                          className="bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 px-2 py-1.5 rounded-xl text-[10px] font-bold flex items-center gap-1 shadow-xs active:scale-95 transition-all"
-                          title="تبدیل چند صفحه همزمان به یک فایل PDF اداری واحد"
-                        >
-                          <Printer className="w-3.5 h-3.5 text-red-600" />
-                          <span>خروجی PDF</span>
-                        </button>
-
-                        <button
-                          onClick={() => handleAddPageToDoc(activeDoc.id, true)}
-                          className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 px-2 py-1.5 rounded-xl text-[10px] font-bold flex items-center gap-1 shadow-xs active:scale-95 transition-all"
-                          title="افزودن برگه جدید به این سند"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                          <span>+ برگه</span>
-                        </button>
                         <button
                           onClick={handleShare}
-                          className="p-1.5 hover:bg-sky-50 text-sky-600 rounded-xl"
-                          title="اشتراک‌گذاری تصویر"
+                          className="p-2 hover:bg-sky-50 text-sky-600 rounded-xl"
+                          title="اشتراک‌گذاری"
                         >
                           <Share2 className="w-4 h-4" />
                         </button>
                         <button
                           onClick={handleSaveFilter}
-                          className="bg-sky-600 hover:bg-sky-700 text-white px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 shadow-sm active:scale-95 transition-all"
+                          className="bg-sky-600 hover:bg-sky-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm active:scale-95 transition-all"
                         >
                           <Save className="w-3.5 h-3.5" />
                           <span>ذخیره</span>
@@ -1966,59 +1448,105 @@ object PdfExportEngine {
                       </div>
                     </div>
 
-                    {/* نوار جابجایی بین صفحات سند چندصفحه‌ای */}
-                    {activeDoc.pages && activeDoc.pages.length > 1 && (
-                      <div className="bg-slate-200/95 px-3 py-1.5 flex items-center justify-between text-xs border-b border-slate-300 shrink-0 shadow-2xs">
-                        <button
-                          disabled={activePageIndex === 0}
-                          onClick={() => {
-                            const prevIdx = Math.max(0, activePageIndex - 1);
-                            setActivePageIndex(prevIdx);
-                            if (activeDoc.pages[prevIdx]?.imageSrc) {
-                              setCustomImage(activeDoc.pages[prevIdx].imageSrc!);
-                            }
-                          }}
-                          className="p-1 rounded-md bg-white hover:bg-slate-100 disabled:opacity-30 text-slate-700 shadow-2xs transition-all"
-                          title="برگه قبلی"
-                        >
-                          <ChevronRight className="w-3.5 h-3.5" />
-                        </button>
-
-                        <div className="flex items-center gap-1.5 overflow-x-auto max-w-[200px] scrollbar-none px-1">
-                          {activeDoc.pages.map((p, idx) => (
-                            <button
-                              key={p.id}
-                              onClick={() => {
-                                setActivePageIndex(idx);
-                                if (p.imageSrc) setCustomImage(p.imageSrc);
-                              }}
-                              className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition-all ${
-                                activePageIndex === idx
-                                  ? 'bg-sky-600 text-white shadow-xs scale-105'
-                                  : 'bg-white text-slate-600 hover:bg-slate-100'
-                              }`}
-                            >
-                              برگه {idx + 1}
-                            </button>
-                          ))}
+                    {/* نوار مدرن، با سایه ملایم و ارگونومیک برای موبایل جهت تبدیل همزمان برگه‌ها به یک PDF واحد */}
+                    <div className="bg-white/95 backdrop-blur-sm border-b border-slate-200/90 px-3.5 py-2.5 shadow-sm shrink-0 flex flex-col gap-2.5">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-red-50 to-rose-100 border border-red-200/70 text-red-600 flex items-center justify-center shrink-0 shadow-xs">
+                            <FileText className="w-3.5 h-3.5" />
+                          </div>
+                          <div className="flex flex-col min-w-0">
+                            <span className="text-xs font-bold text-slate-800 truncate">
+                              تبدیل به PDF واحد
+                            </span>
+                            <span className="text-[10px] text-slate-500 font-medium leading-none mt-0.5">
+                              {1 + additionalPages.length} برگه انتخاب‌شده
+                            </span>
+                          </div>
                         </div>
 
                         <button
-                          disabled={activePageIndex >= activeDoc.pages.length - 1}
-                          onClick={() => {
-                            const nextIdx = Math.min(activeDoc.pages.length - 1, activePageIndex + 1);
-                            setActivePageIndex(nextIdx);
-                            if (activeDoc.pages[nextIdx]?.imageSrc) {
-                              setCustomImage(activeDoc.pages[nextIdx].imageSrc!);
-                            }
-                          }}
-                          className="p-1 rounded-md bg-white hover:bg-slate-100 disabled:opacity-30 text-slate-700 shadow-2xs transition-all"
-                          title="برگه بعدی"
+                          onClick={handleGenerateMultiPagePdf}
+                          disabled={isGeneratingPdf}
+                          className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs hover:shadow-sm active:scale-95 transition-all disabled:opacity-50 shrink-0 cursor-pointer"
                         >
-                          <ChevronLeft className="w-3.5 h-3.5" />
+                          {isGeneratingPdf ? (
+                            <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          ) : (
+                            <Download className="w-3.5 h-3.5" />
+                          )}
+                          <span>دانلود PDF واحد</span>
                         </button>
                       </div>
-                    )}
+
+                      {/* ردیف دکمه افزودن و برگه‌ها با استایل مدرن و سایه ملایم */}
+                      <div className="flex items-center gap-2 overflow-x-auto pb-1 pt-0.5 scrollbar-none">
+                        {/* دکمه افزودن برگه */}
+                        <button
+                          onClick={() => multiPageFileInputRef.current?.click()}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-b from-sky-50 to-blue-50/60 hover:from-sky-100 hover:to-blue-100 text-sky-700 border border-sky-200/80 rounded-xl text-xs font-bold whitespace-nowrap shadow-xs hover:shadow-sm active:scale-95 transition-all shrink-0 cursor-pointer"
+                          title="افزودن تصویر یا سند جدید به PDF"
+                        >
+                          <div className="w-4 h-4 rounded-md bg-sky-200/70 text-sky-800 flex items-center justify-center">
+                            <Plus className="w-3 h-3" />
+                          </div>
+                          <span>افزودن برگه</span>
+                        </button>
+
+                        <div className="h-5 w-px bg-slate-200 shrink-0 mx-0.5" />
+
+                        {/* برگه ۱ اصلی */}
+                        <button
+                          onClick={() => setSelectedPageIndex(0)}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs transition-all shrink-0 cursor-pointer border ${
+                            selectedPageIndex === 0
+                              ? 'bg-gradient-to-r from-sky-600 to-blue-600 text-white font-bold border-sky-500 shadow-sm ring-2 ring-sky-200/60'
+                              : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200 shadow-xs'
+                          }`}
+                        >
+                          <FileText className={`w-3.5 h-3.5 ${selectedPageIndex === 0 ? 'text-sky-100' : 'text-slate-400'}`} />
+                          <span>برگه ۱ (اصلی)</span>
+                        </button>
+
+                        {/* برگه‌های بعدی */}
+                        {additionalPages.map((_, pIdx) => {
+                          const isCur = selectedPageIndex === pIdx + 1;
+                          return (
+                            <div
+                              key={pIdx}
+                              onClick={() => setSelectedPageIndex(pIdx + 1)}
+                              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs cursor-pointer transition-all shrink-0 border ${
+                                isCur
+                                  ? 'bg-gradient-to-r from-sky-600 to-blue-600 text-white font-bold border-sky-500 shadow-sm ring-2 ring-sky-200/60'
+                                  : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200 shadow-xs'
+                              }`}
+                            >
+                              <FileText className={`w-3.5 h-3.5 ${isCur ? 'text-sky-100' : 'text-slate-400'}`} />
+                              <span className="whitespace-nowrap">برگه {pIdx + 2}</span>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setAdditionalPages(prev => prev.filter((_, idx) => idx !== pIdx));
+                                  if (selectedPageIndex === pIdx + 1) {
+                                    setSelectedPageIndex(0);
+                                  } else if (selectedPageIndex > pIdx + 1) {
+                                    setSelectedPageIndex(prev => prev - 1);
+                                  }
+                                }}
+                                className={`p-1 rounded-lg transition-colors ml-0.5 ${
+                                  isCur 
+                                    ? 'hover:bg-red-500/80 text-white/90' 
+                                    : 'hover:bg-red-50 text-slate-400 hover:text-red-500'
+                                }`}
+                                title="حذف این برگه"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
 
                     {/* کادر نمایش سند اسکن‌شده تمیز در برگه سفید A4 */}
                     <div className="flex-1 p-3.5 flex items-center justify-center overflow-hidden bg-slate-200/80">
@@ -2026,7 +1554,16 @@ object PdfExportEngine {
                       <div 
                         className="w-full max-w-[315px] aspect-[1/1.38] bg-white rounded-[3px] shadow-[0_12px_35px_rgba(0,0,0,0.2)] border border-slate-300/80 p-4 flex flex-col justify-between transition-all duration-300 relative overflow-hidden select-none"
                       >
-                        {customImage || activeDoc.imageSrc ? (
+                        {selectedPageIndex > 0 && additionalPages[selectedPageIndex - 1] ? (
+                          <div className="w-full h-full relative flex items-center justify-center bg-white p-1">
+                            <img 
+                              src={additionalPages[selectedPageIndex - 1]} 
+                              alt={`برگه ${selectedPageIndex + 1}`} 
+                              className="max-h-full max-w-full object-contain rounded-xs shadow-xs"
+                              style={{ backgroundColor: '#FFFFFF' }}
+                            />
+                          </div>
+                        ) : customImage || activeDoc.imageSrc ? (
                           <div className="w-full h-full relative flex items-center justify-center bg-white p-1">
                             {isProcessingFilter && (
                               <div className="absolute inset-0 bg-white/75 backdrop-blur-[1px] flex items-center justify-center z-10 rounded-xs">
@@ -2208,174 +1745,6 @@ object PdfExportEngine {
                         </div>
                       </div>
                     </div>
-
-                    {/* دیالوگ مودال خروجی PDF چندصفحه‌ای (استاندارد A4) */}
-                    {showPdfExportModal && (
-                      <div className="absolute inset-0 bg-black/65 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center p-3 animate-in fade-in duration-200">
-                        <div className="bg-white w-full max-h-[90%] rounded-3xl p-4 shadow-2xl flex flex-col gap-3 overflow-hidden border border-slate-200 text-right">
-                          {/* هدر دیالوگ */}
-                          <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
-                            <div className="flex items-center gap-2.5">
-                              <div className="w-10 h-10 rounded-2xl bg-red-100 text-red-600 flex items-center justify-center shadow-xs">
-                                <Printer className="w-5 h-5" />
-                              </div>
-                              <div>
-                                <h3 className="font-bold text-sm text-slate-900 leading-tight">خروجی PDF چندصفحه‌ای</h3>
-                                <p className="text-[10px] text-slate-500 font-medium">استاندارد کاغذ اداری A4 • تجمیع صفحات</p>
-                              </div>
-                            </div>
-                            <button
-                              disabled={isGeneratingPdf}
-                              onClick={() => setShowPdfExportModal(false)}
-                              className="p-1.5 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 disabled:opacity-30 transition-all"
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
-                          </div>
-
-                          {/* وضعیت در حال پردازش یا فرم انتخاب صفحات */}
-                          {isGeneratingPdf ? (
-                            <div className="py-10 flex flex-col items-center justify-center gap-3 text-center">
-                              <div className="w-10 h-10 border-3 border-red-500 border-t-transparent rounded-full animate-spin" />
-                              <span className="font-bold text-xs text-slate-800">{pdfExportProgressText}</span>
-                              <span className="text-[11px] text-slate-500">لطفاً شکیبا باشید، برگه‌ها با بالاترین وضوح در فایل PDF ترکیب می‌شوند...</span>
-                            </div>
-                          ) : (
-                            <div className="flex-1 overflow-y-auto space-y-3 pr-0.5">
-                              {/* نام سند */}
-                              <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 flex items-center justify-between text-xs">
-                                <div>
-                                  <span className="text-slate-500 block text-[10px]">عنوان سند خروجی:</span>
-                                  <span className="font-bold text-slate-800 text-xs truncate max-w-[180px] block">{activeDoc.title}</span>
-                                </div>
-                                <span className="bg-red-50 text-red-700 border border-red-200 px-2 py-0.5 rounded-md font-mono text-[10px] font-bold">
-                                  {selectedPdfPageIndices.length} صفحه در فایل
-                                </span>
-                              </div>
-
-                              {/* دکمه‌های کنترل انتخاب */}
-                              <div className="flex items-center justify-between text-xs px-1">
-                                <span className="font-bold text-slate-700 text-[11px]">
-                                  انتخاب صفحات جهت افزودن به فایل PDF:
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const total = activeDoc.pages?.length || 1;
-                                    if (selectedPdfPageIndices.length === total) {
-                                      // حداقل یک صفحه باید انتخاب باشد
-                                      setSelectedPdfPageIndices([0]);
-                                    } else {
-                                      setSelectedPdfPageIndices(Array.from({ length: total }, (_, i) => i));
-                                    }
-                                  }}
-                                  className="text-sky-600 hover:text-sky-700 font-bold text-[10px] bg-sky-50 px-2 py-1 rounded-lg border border-sky-200/60 transition-all"
-                                >
-                                  {selectedPdfPageIndices.length === (activeDoc.pages?.length || 1) ? 'فقط صفحه اول' : 'انتخاب همه صفحات'}
-                                </button>
-                              </div>
-
-                              {/* لیست کارت‌های صفحات با چک‌باکس */}
-                              <div className="space-y-2">
-                                {(activeDoc.pages && activeDoc.pages.length > 0 ? activeDoc.pages : [
-                                  { id: 'p-1', pageNumber: 1, title: activeDoc.title, filter: selectedFilter }
-                                ]).map((page, idx) => {
-                                  const isSelected = selectedPdfPageIndices.includes(idx);
-                                  return (
-                                    <div
-                                      key={page.id}
-                                      onClick={() => {
-                                        if (isSelected) {
-                                          if (selectedPdfPageIndices.length > 1) {
-                                            setSelectedPdfPageIndices(prev => prev.filter(i => i !== idx));
-                                          } else {
-                                            showToast('حداقل یک صفحه باید در فایل PDF باقی بماند');
-                                          }
-                                        } else {
-                                          setSelectedPdfPageIndices(prev => [...prev, idx].sort((a, b) => a - b));
-                                        }
-                                      }}
-                                      className={`p-2.5 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-3 ${
-                                        isSelected 
-                                          ? 'bg-red-50/60 border-red-300 ring-1 ring-red-200' 
-                                          : 'bg-white border-slate-200 opacity-60 hover:opacity-90'
-                                      }`}
-                                    >
-                                      <div className="flex items-center gap-2.5 min-w-0">
-                                        <div className={`w-6 h-6 rounded-lg flex items-center justify-center transition-colors ${
-                                          isSelected ? 'bg-red-600 text-white' : 'bg-slate-200 text-slate-400'
-                                        }`}>
-                                          {isSelected ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
-                                        </div>
-                                        <div className="w-9 h-11 bg-slate-100 rounded-lg border border-slate-300 flex items-center justify-center overflow-hidden shrink-0">
-                                          {page.imageSrc || (idx === activePageIndex ? (processedPreviewUrl || customImage) : null) ? (
-                                            <img 
-                                              src={idx === activePageIndex && processedPreviewUrl ? processedPreviewUrl : (page.imageSrc || customImage || activeDoc.imageSrc)} 
-                                              alt="" 
-                                              className="w-full h-full object-cover" 
-                                            />
-                                          ) : (
-                                            <span className="text-[9px] font-bold text-slate-400">P{idx + 1}</span>
-                                          )}
-                                        </div>
-                                        <div className="min-w-0">
-                                          <h4 className="font-bold text-xs text-slate-900 truncate">
-                                            برگه {idx + 1}: {page.title || `صفحه ${idx + 1}`}
-                                          </h4>
-                                          <span className="text-[10px] text-slate-500 block">
-                                            فیلتر: {getFilterLabel(page.filter || selectedFilter)}
-                                          </span>
-                                        </div>
-                                      </div>
-
-                                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
-                                        isSelected ? 'bg-red-100 text-red-800' : 'bg-slate-100 text-slate-500'
-                                      }`}>
-                                        {isSelected ? 'تأیید شده' : 'حذف شده'}
-                                      </span>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-
-                              {/* مشخصات فایل و ضوابط خروجی */}
-                              <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 text-[10px] text-slate-600 space-y-1">
-                                <div className="flex items-center justify-between font-semibold">
-                                  <span>ابعاد برگه خروجی:</span>
-                                  <span className="font-mono text-slate-800 font-bold">A4 Portrait (595 × 842 pt)</span>
-                                </div>
-                                <div className="flex items-center justify-between font-semibold">
-                                  <span>پاورقی و شماره‌گذاری:</span>
-                                  <span className="text-emerald-700 font-bold">درج خودکار در انتهای هر برگه</span>
-                                </div>
-                                <p className="text-[9.5px] text-slate-500 pt-1 leading-relaxed border-t border-slate-200">
-                                  • تمامی برگه‌های انتخاب‌شده با رزولوشن اداری و اعمال فیلتر استودیویی ذیل یک سند PDF واحد ادغام خواهند شد.
-                                </p>
-                              </div>
-                            </div>
-                          )}
-
-                          {/* فوتر دکمه‌های اقدام دیالوگ */}
-                          <div className="pt-2 border-t border-slate-100 flex items-center gap-2">
-                            <button
-                              disabled={isGeneratingPdf || selectedPdfPageIndices.length === 0}
-                              onClick={() => handleExportMultiPagePdf(selectedPdfPageIndices)}
-                              className="flex-1 py-2.5 px-3 bg-red-600 hover:bg-red-700 disabled:opacity-40 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-md shadow-red-600/30 active:scale-95 transition-all"
-                            >
-                              <Download className="w-4 h-4" />
-                              <span>دانلود فایل PDF ({selectedPdfPageIndices.length} صفحه)</span>
-                            </button>
-                            <button
-                              disabled={isGeneratingPdf}
-                              onClick={() => setShowPdfExportModal(false)}
-                              className="py-2.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all"
-                            >
-                              انصراف
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    )}
                   </div>
                 )}
               </div>
