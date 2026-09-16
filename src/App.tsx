@@ -27,7 +27,10 @@ import {
   Maximize2,
   Plus,
   X,
-  FilePlus
+  FilePlus,
+  ZoomIn,
+  ZoomOut,
+  RotateCcw
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 
@@ -102,6 +105,12 @@ export default function App() {
   const [additionalPages, setAdditionalPages] = useState<string[]>([]);
   const [selectedPageIndex, setSelectedPageIndex] = useState<number>(0);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+
+  // وضعیت‌های زوم و جابه‌جایی تعاملی برای سند اسکن‌شده
+  const [previewZoom, setPreviewZoom] = useState<number>(1);
+  const [previewPan, setPreviewPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isDraggingPreview, setIsDraggingPreview] = useState(false);
+  const previewDragStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -1548,127 +1557,223 @@ fun PerspectiveCropView(
                       </div>
                     </div>
 
-                    {/* کادر نمایش سند اسکن‌شده تمیز در برگه سفید A4 */}
-                    <div className="flex-1 p-3.5 flex items-center justify-center overflow-hidden bg-slate-200/80">
-                      {/* برگه سفید سند اسکن‌شده */}
+                    {/* کادر مدرن نمایش سند اسکن‌شده با نسبت تطبیق‌پذیر و قابلیت زوم و جابه‌جایی */}
+                    <div 
+                      className="flex-1 relative overflow-hidden bg-gradient-to-b from-slate-200 to-slate-300/90 flex items-center justify-center p-4 select-none touch-none"
+                      onMouseDown={(e) => {
+                        if (previewZoom > 1) {
+                          setIsDraggingPreview(true);
+                          previewDragStartRef.current = { x: e.clientX - previewPan.x, y: e.clientY - previewPan.y };
+                        }
+                      }}
+                      onMouseMove={(e) => {
+                        if (isDraggingPreview && previewZoom > 1) {
+                          setPreviewPan({
+                            x: e.clientX - previewDragStartRef.current.x,
+                            y: e.clientY - previewDragStartRef.current.y
+                          });
+                        }
+                      }}
+                      onMouseUp={() => setIsDraggingPreview(false)}
+                      onMouseLeave={() => setIsDraggingPreview(false)}
+                      onTouchStart={(e) => {
+                        if (previewZoom > 1 && e.touches.length === 1) {
+                          setIsDraggingPreview(true);
+                          previewDragStartRef.current = { 
+                            x: e.touches[0].clientX - previewPan.x, 
+                            y: e.touches[0].clientY - previewPan.y 
+                          };
+                        }
+                      }}
+                      onTouchMove={(e) => {
+                        if (isDraggingPreview && previewZoom > 1 && e.touches.length === 1) {
+                          setPreviewPan({
+                            x: e.touches[0].clientX - previewDragStartRef.current.x,
+                            y: e.touches[0].clientY - previewDragStartRef.current.y
+                          });
+                        }
+                      }}
+                      onTouchEnd={() => setIsDraggingPreview(false)}
+                      onWheel={(e) => {
+                        if (e.ctrlKey || e.metaKey || true) {
+                          e.preventDefault();
+                          const delta = e.deltaY > 0 ? -0.2 : 0.2;
+                          setPreviewZoom(z => {
+                            const next = Math.min(3, Math.max(1, +(z + delta).toFixed(1)));
+                            if (next === 1) setPreviewPan({ x: 0, y: 0 });
+                            return next;
+                          });
+                        }
+                      }}
+                    >
+                      {/* ابزارک شناور کنترل زوم */}
+                      <div className="absolute top-3 left-3 z-30 flex items-center gap-1 bg-white/90 backdrop-blur-md px-2 py-1 rounded-xl shadow-md border border-slate-200/80">
+                        <button
+                          onClick={() => setPreviewZoom(z => Math.min(3, +(z + 0.25).toFixed(2)))}
+                          className="p-1 hover:bg-slate-100 rounded-lg text-slate-700 transition-colors"
+                          title="بزرگ‌نمایی (+)"
+                        >
+                          <ZoomIn className="w-3.5 h-3.5" />
+                        </button>
+                        <span className="text-[10px] font-bold font-mono text-slate-700 px-1 min-w-[34px] text-center">
+                          {Math.round(previewZoom * 100)}%
+                        </span>
+                        <button
+                          onClick={() => {
+                            setPreviewZoom(z => {
+                              const next = Math.max(1, +(z - 0.25).toFixed(2));
+                              if (next === 1) setPreviewPan({ x: 0, y: 0 });
+                              return next;
+                            });
+                          }}
+                          className="p-1 hover:bg-slate-100 rounded-lg text-slate-700 transition-colors"
+                          title="کوچک‌نمایی (-)"
+                        >
+                          <ZoomOut className="w-3.5 h-3.5" />
+                        </button>
+                        {previewZoom > 1 && (
+                          <button
+                            onClick={() => {
+                              setPreviewZoom(1);
+                              setPreviewPan({ x: 0, y: 0 });
+                            }}
+                            className="p-1 hover:bg-red-50 text-slate-500 hover:text-red-600 rounded-lg transition-colors border-r border-slate-200 mr-0.5 pr-1.5"
+                            title="بازنشانی اندازه"
+                          >
+                            <RotateCcw className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* نشانگر برگه سفید سند اسکن‌شده */}
+                      <div className="absolute top-3 right-3 z-30 bg-slate-900/80 text-white text-[10px] px-2.5 py-1 rounded-full backdrop-blur-xs font-medium shadow-sm flex items-center gap-1">
+                        <span>برگه استاندارد سند</span>
+                      </div>
+
+                      {/* برگه سفید سند شناور با سایه عمیق و انطباق ابعاد طبیعی */}
                       <div 
-                        className="w-full max-w-[315px] aspect-[1/1.38] bg-white rounded-[3px] shadow-[0_12px_35px_rgba(0,0,0,0.2)] border border-slate-300/80 p-4 flex flex-col justify-between transition-all duration-300 relative overflow-hidden select-none"
+                        className="transition-transform duration-75 ease-out"
+                        style={{
+                          transform: `scale(${previewZoom}) translate(${previewPan.x / previewZoom}px, ${previewPan.y / previewZoom}px)`,
+                          cursor: previewZoom > 1 ? (isDraggingPreview ? 'grabbing' : 'grab') : 'default'
+                        }}
                       >
-                        {selectedPageIndex > 0 && additionalPages[selectedPageIndex - 1] ? (
-                          <div className="w-full h-full relative flex items-center justify-center bg-white p-1">
-                            <img 
-                              src={additionalPages[selectedPageIndex - 1]} 
-                              alt={`برگه ${selectedPageIndex + 1}`} 
-                              className="max-h-full max-w-full object-contain rounded-xs shadow-xs"
-                              style={{ backgroundColor: '#FFFFFF' }}
-                            />
-                          </div>
-                        ) : customImage || activeDoc.imageSrc ? (
-                          <div className="w-full h-full relative flex items-center justify-center bg-white p-1">
-                            {isProcessingFilter && (
-                              <div className="absolute inset-0 bg-white/75 backdrop-blur-[1px] flex items-center justify-center z-10 rounded-xs">
-                                <div className="text-[10px] font-bold text-sky-800 bg-white px-2.5 py-1 rounded-full shadow-md border border-sky-200 flex items-center gap-1.5 animate-pulse">
-                                  <Sparkles className="w-3.5 h-3.5 text-sky-600" />
-                                  <span>پردازش فتوکپی استودیویی...</span>
+                        <div 
+                          className="max-w-[360px] max-h-[500px] bg-white rounded-lg shadow-[0_16px_40px_rgba(15,23,42,0.18),0_4px_12px_rgba(15,23,42,0.08)] border border-slate-200/80 p-3 sm:p-4 flex flex-col justify-between relative overflow-hidden transition-shadow"
+                        >
+                          {selectedPageIndex > 0 && additionalPages[selectedPageIndex - 1] ? (
+                            <div className="w-full flex items-center justify-center bg-white p-1">
+                              <img 
+                                src={additionalPages[selectedPageIndex - 1]} 
+                                alt={`برگه ${selectedPageIndex + 1}`} 
+                                className="max-h-[420px] max-w-full object-contain rounded-md shadow-xs"
+                                style={{ backgroundColor: '#FFFFFF' }}
+                              />
+                            </div>
+                          ) : customImage || activeDoc.imageSrc ? (
+                            <div className="w-full relative flex items-center justify-center bg-white p-1">
+                              {isProcessingFilter && (
+                                <div className="absolute inset-0 bg-white/80 backdrop-blur-[1px] flex items-center justify-center z-10 rounded-md">
+                                  <div className="text-[10px] font-bold text-sky-800 bg-white px-3 py-1.5 rounded-full shadow-md border border-sky-200 flex items-center gap-1.5 animate-pulse">
+                                    <Sparkles className="w-3.5 h-3.5 text-sky-600" />
+                                    <span>پردازش فتوکپی استودیویی...</span>
+                                  </div>
+                                </div>
+                              )}
+                              <img 
+                                src={processedPreviewUrl || customImage || activeDoc.imageSrc} 
+                                alt="سند اسکن شده" 
+                                className="max-h-[420px] max-w-full object-contain rounded-md shadow-xs"
+                                style={processedPreviewUrl ? { backgroundColor: '#FFFFFF' } : getFilterStyle(selectedFilter)}
+                              />
+                            </div>
+                          ) : (
+                            <div 
+                              className="w-[280px] min-h-[380px] flex flex-col justify-between p-1"
+                              style={getFilterStyle(selectedFilter)}
+                            >
+                              {/* هدر سند رسمی */}
+                              <div className="flex items-center justify-between border-b pb-2.5 border-slate-300">
+                                <div className="w-7 h-7 rounded bg-slate-100 flex items-center justify-center text-xs font-bold shadow-xs">
+                                  🇮🇷
+                                </div>
+                                <div className="text-center">
+                                  <span className="text-[10px] font-medium block text-slate-500">جمهوری اسلامی ایران</span>
+                                  <h4 className="font-bold text-xs text-slate-900">{activeDoc.title}</h4>
+                                </div>
+                                <div className="text-[9px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded font-mono">
+                                  ۱۴۰۳/۰۲/۱۵
                                 </div>
                               </div>
+
+                              {/* خطوط شبیه‌سازی متن مدرک اسکن‌شده با کیفیت و کنتراست بالا */}
+                              <div className="space-y-1.5 py-2 text-right">
+                                <p className={`text-[10px] font-bold border-b pb-1 ${
+                                  selectedFilter === 'photocopy' ? 'text-black border-slate-900 font-black' : 'text-slate-900 border-slate-200'
+                                }`}>
+                                  شماره پرونده: ۱۴۰۳/۷۸۹۲/الف - کد ملی: ۰۰۸۳۹۲۸۱۷۲
+                                </p>
+                                <p className={`text-[9.5px] leading-relaxed ${
+                                  selectedFilter === 'photocopy' ? 'text-black font-bold' : 'text-slate-800 font-medium'
+                                }`}>
+                                  بدین‌وسیله گواهی می‌شود مدارک هویتی پیوست پس از بررسی مراجع ذی‌صلاح، احراز اصالت گردید.
+                                </p>
+                                <p className={`text-[9.5px] leading-relaxed ${
+                                  selectedFilter === 'photocopy' ? 'text-black font-bold' : 'text-slate-800 font-medium'
+                                }`}>
+                                  محل صدور: تهران، اداره ثبت اسناد و املاک مرکزی - شناسه رهگیری: ۹۲۸۳۷۴۶۱
+                                </p>
+                                <p className={`text-[9px] leading-relaxed ${
+                                  selectedFilter === 'photocopy' ? 'text-black font-semibold' : 'text-slate-700'
+                                }`}>
+                                  کلیه مفاد و مندرجات این گواهی رسمی دارای اعتبار قانونی بوده و در کلیه مراجع اداری نافذ است.
+                                </p>
+                                <p className={`text-[8.5px] pt-0.5 ${
+                                  selectedFilter === 'photocopy' ? 'text-slate-900 font-medium' : 'text-slate-600'
+                                }`}>
+                                  جهت استعلام اصالت دیجیتال سند به سامانه الکترونیک خدمات اسناد رسمی مراجعه فرمایید.
+                                </p>
+                              </div>
+
+                              {/* مهر و امضای رسمی پایین سند */}
+                              <div className="flex items-center justify-between pt-2 border-t border-slate-300">
+                                <div className={`w-12 h-12 rounded-full border-2 flex items-center justify-center text-[9px] font-black rotate-[-12deg] shadow-xs ${
+                                  selectedFilter === 'photocopy' 
+                                    ? 'border-slate-950 text-slate-950 bg-slate-50' 
+                                    : 'border-red-600 text-red-600'
+                                }`}>
+                                  تأیید شد
+                                </div>
+                                <div className="text-left">
+                                  <div className="text-[9px] text-slate-500">محل امضا و اثر انگشت</div>
+                                  <div className={`w-16 h-4 border-b-2 mt-1 ${
+                                    selectedFilter === 'photocopy' ? 'border-black' : 'border-slate-800'
+                                  }`} />
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* نشانگر فیلتر اعمال‌شده در پایین */}
+                          <div className="mt-2 pt-1.5 border-t border-slate-100 flex items-center justify-between">
+                            <div className={`text-[9px] px-2 py-0.5 rounded-full shadow-xs font-bold flex items-center gap-1 ${
+                              selectedFilter === 'photocopy' 
+                                ? 'bg-slate-950 text-white ring-1 ring-white/20' 
+                                : 'bg-sky-600 text-white'
+                            }`}>
+                              {selectedFilter === 'photocopy' && <Printer className="w-3 h-3 text-sky-400" />}
+                              <span>{selectedFilter === 'photocopy' ? 'فتوکپی استودیویی (Post-Sharpening فعال)' : getFilterLabel(selectedFilter)}</span>
+                            </div>
+
+                            {/* نشانگر تراز بودن پرسپکتیو */}
+                            {isPerspectiveCropped && (
+                              <div className="bg-emerald-600/90 text-white text-[9px] px-2 py-0.5 rounded-full backdrop-blur-xs flex items-center gap-1">
+                                <Check className="w-3 h-3" />
+                                <span>تراز با Matrix.setPolyToPoly</span>
+                              </div>
                             )}
-                            <img 
-                              src={processedPreviewUrl || customImage || activeDoc.imageSrc} 
-                              alt="سند اسکن شده" 
-                              className="max-h-full max-w-full object-contain rounded-xs shadow-xs"
-                              style={processedPreviewUrl ? { backgroundColor: '#FFFFFF' } : getFilterStyle(selectedFilter)}
-                            />
                           </div>
-                        ) : (
-                          <div 
-                            className="w-full h-full flex flex-col justify-between"
-                            style={getFilterStyle(selectedFilter)}
-                          >
-                            {/* هدر سند رسمی */}
-                            <div className="flex items-center justify-between border-b pb-2.5 border-slate-300">
-                              <div className="w-7 h-7 rounded bg-slate-100 flex items-center justify-center text-xs font-bold shadow-xs">
-                                🇮🇷
-                              </div>
-                              <div className="text-center">
-                                <span className="text-[10px] font-medium block text-slate-500">جمهوری اسلامی ایران</span>
-                                <h4 className="font-bold text-xs text-slate-900">{activeDoc.title}</h4>
-                              </div>
-                              <div className="text-[9px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded font-mono">
-                                ۱۴۰۳/۰۲/۱۵
-                              </div>
-                            </div>
-
-                            {/* خطوط شبیه‌سازی متن مدرک اسکن‌شده با کیفیت و کنتراست بالا */}
-                            <div className="space-y-1.5 py-1 text-right">
-                              <p className={`text-[10px] font-bold border-b pb-1 ${
-                                selectedFilter === 'photocopy' ? 'text-black border-slate-900 font-black' : 'text-slate-900 border-slate-200'
-                              }`}>
-                                شماره پرونده: ۱۴۰۳/۷۸۹۲/الف - کد ملی: ۰۰۸۳۹۲۸۱۷۲
-                              </p>
-                              <p className={`text-[9.5px] leading-relaxed ${
-                                selectedFilter === 'photocopy' ? 'text-black font-bold' : 'text-slate-800 font-medium'
-                              }`}>
-                                بدین‌وسیله گواهی می‌شود مدارک هویتی پیوست پس از بررسی مراجع ذی‌صلاح، احراز اصالت گردید.
-                              </p>
-                              <p className={`text-[9.5px] leading-relaxed ${
-                                selectedFilter === 'photocopy' ? 'text-black font-bold' : 'text-slate-800 font-medium'
-                              }`}>
-                                محل صدور: تهران، اداره ثبت اسناد و املاک مرکزی - شناسه رهگیری: ۹۲۸۳۷۴۶۱
-                              </p>
-                              <p className={`text-[9px] leading-relaxed ${
-                                selectedFilter === 'photocopy' ? 'text-black font-semibold' : 'text-slate-700'
-                              }`}>
-                                کلیه مفاد و مندرجات این گواهی رسمی دارای اعتبار قانونی بوده و در کلیه مراجع اداری نافذ است.
-                              </p>
-                              <p className={`text-[8.5px] pt-0.5 ${
-                                selectedFilter === 'photocopy' ? 'text-slate-900 font-medium' : 'text-slate-600'
-                              }`}>
-                                جهت استعلام اصالت دیجیتال سند به سامانه الکترونیک خدمات اسناد رسمی مراجعه فرمایید.
-                              </p>
-                            </div>
-
-                            {/* مهر و امضای رسمی پایین سند */}
-                            <div className="flex items-center justify-between pt-2 border-t border-slate-300">
-                              <div className={`w-12 h-12 rounded-full border-2 flex items-center justify-center text-[9px] font-black rotate-[-12deg] shadow-xs ${
-                                selectedFilter === 'photocopy' 
-                                  ? 'border-slate-950 text-slate-950 bg-slate-50' 
-                                  : 'border-red-600 text-red-600'
-                              }`}>
-                                تأیید شد
-                              </div>
-                              <div className="text-left">
-                                <div className="text-[9px] text-slate-500">محل امضا و اثر انگشت</div>
-                                <div className={`w-16 h-4 border-b-2 mt-1 ${
-                                  selectedFilter === 'photocopy' ? 'border-black' : 'border-slate-800'
-                                }`} />
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
-                        {/* نشانگر برگه سفید سند اسکن‌شده */}
-                        <div className="absolute top-2 right-2 bg-slate-900/80 text-white text-[9px] px-2 py-0.5 rounded-full backdrop-blur-xs font-medium">
-                          برگه سفید A4 اسکن‌شده
                         </div>
-
-                        {/* نشانگر فیلتر اعمال‌شده */}
-                        <div className={`absolute top-2 left-2 text-[9px] px-2 py-0.5 rounded-full shadow-xs font-bold flex items-center gap-1 ${
-                          selectedFilter === 'photocopy' 
-                            ? 'bg-slate-950 text-white ring-1 ring-white/20' 
-                            : 'bg-sky-600 text-white'
-                        }`}>
-                          {selectedFilter === 'photocopy' && <Printer className="w-3 h-3 text-sky-400" />}
-                          <span>{selectedFilter === 'photocopy' ? 'فتوکپی استودیویی (Post-Sharpening فعال)' : getFilterLabel(selectedFilter)}</span>
-                        </div>
-
-                        {/* نشانگر تراز بودن پرسپکتیو */}
-                        {isPerspectiveCropped && (
-                          <div className="absolute bottom-2 left-2 bg-emerald-600/90 text-white text-[9px] px-2 py-0.5 rounded-full backdrop-blur-xs flex items-center gap-1">
-                            <Check className="w-3 h-3" />
-                            <span>تراز با Matrix.setPolyToPoly</span>
-                          </div>
-                        )}
                       </div>
                     </div>
 

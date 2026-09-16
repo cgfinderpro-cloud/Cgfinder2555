@@ -10,6 +10,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -26,17 +27,23 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Print
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.ZoomIn
+import androidx.compose.material.icons.filled.ZoomOut
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -91,6 +98,10 @@ fun PreviewScreen(
     var additionalPages by remember { mutableStateOf(listOf<Bitmap>()) }
     var selectedPageIndex by remember { mutableIntStateOf(0) }
     var isGeneratingPdf by remember { mutableStateOf(false) }
+
+    // وضعیت‌های زوم دو انگشتی و جابه‌جایی تعاملی برای سند اسکن‌شده
+    var scale by remember { mutableFloatStateOf(1f) }
+    var offset by remember { mutableStateOf(Offset.Zero) }
 
     val allPages = remember(processedBitmap, currentRawBitmap, additionalPages) {
         val firstPage = processedBitmap ?: currentRawBitmap
@@ -578,86 +589,181 @@ fun PreviewScreen(
         },
         containerColor = BackgroundLight
     ) { innerPadding ->
-        // کادر پیش‌نمایش تصویر در وسط صفحه بر روی سطح ملایم خاکستری
+        // کادر مدرن پیش‌نمایش تصویر با فاصله معقول از لبه‌ها، پس‌زمینه شیک، و زوم دو انگشتی
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .background(Color(0xFFE2E8F0)) // سطح ملایم میز کار
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .background(Color(0xFFE5E9F0)) // پس‌زمینه ملایم و چشم‌نواز میز کار
+                .padding(16.dp)
+                .pointerInput(Unit) {
+                    detectTransformGestures { _, pan, zoom, _ ->
+                        scale = (scale * zoom).coerceIn(1f, 3.5f)
+                        if (scale == 1f) {
+                            offset = Offset.Zero
+                        } else {
+                            val maxOffset = (scale - 1f) * 400f
+                            offset = Offset(
+                                x = (offset.x + pan.x).coerceIn(-maxOffset, maxOffset),
+                                y = (offset.y + pan.y).coerceIn(-maxOffset, maxOffset)
+                            )
+                        }
+                    }
+                },
             contentAlignment = Alignment.Center
         ) {
-            // برگه سفید سند اسکن‌شده تمیز (Clean White A4 Document Sheet)
+            // ابزارک شناور کنترل زوم در گوشه بالا-چپ
             Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = Color.White.copy(alpha = 0.95f),
+                shadowElevation = 4.dp,
+                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
                 modifier = Modifier
-                    .fillMaxWidth(0.96f)
-                    .fillMaxHeight(0.98f)
-                    .shadow(
-                        elevation = 10.dp,
-                        shape = RoundedCornerShape(4.dp),
-                        spotColor = Color.Black.copy(alpha = 0.25f)
-                    )
-                    .border(1.dp, Color(0xFFCBD5E1), RoundedCornerShape(4.dp)),
-                shape = RoundedCornerShape(4.dp),
-                color = Color.White
+                    .align(Alignment.TopStart)
+                    .padding(8.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.White)
-                        .padding(8.dp),
-                    contentAlignment = Alignment.Center
+                Row(
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    val displayBitmap = if (selectedPageIndex in allPages.indices) allPages[selectedPageIndex] else (processedBitmap ?: currentRawBitmap)
-                    Image(
-                        bitmap = displayBitmap.asImageBitmap(),
-                        contentDescription = docTitle,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clip(RoundedCornerShape(2.dp)),
-                        contentScale = ContentScale.Fit
-                    )
-
-                    // نشانگر فیلتر در گوشه بالا
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.95f),
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(10.dp)
+                    IconButton(
+                        onClick = { scale = (scale + 0.25f).coerceAtMost(3.5f) },
+                        modifier = Modifier.size(28.dp)
                     ) {
-                        Text(
-                            text = "فیلتر: ${selectedFilter.titleFa}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                        Icon(
+                            imageVector = Icons.Default.ZoomIn,
+                            contentDescription = "بزرگ‌نمایی",
+                            tint = Color(0xFF334155),
+                            modifier = Modifier.size(18.dp)
                         )
                     }
 
-                    // نشانگر در حال پردازش در صورت لودینگ
-                    if (isProcessing) {
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = Color.Black.copy(alpha = 0.65f),
-                            modifier = Modifier.align(Alignment.Center)
+                    Text(
+                        text = "${(scale * 100).toInt()}%",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF1E293B),
+                        modifier = Modifier.padding(horizontal = 4.dp)
+                    )
+
+                    IconButton(
+                        onClick = {
+                            scale = (scale - 0.25f).coerceAtLeast(1f)
+                            if (scale == 1f) offset = Offset.Zero
+                        },
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ZoomOut,
+                            contentDescription = "کوچک‌نمایی",
+                            tint = Color(0xFF334155),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    if (scale > 1f) {
+                        IconButton(
+                            onClick = {
+                                scale = 1f
+                                offset = Offset.Zero
+                            },
+                            modifier = Modifier.size(28.dp)
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "اندازه اصلی",
+                                tint = Color(0xFFDC2626),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // نشانگر وضعیت فیلتر در بالا-راست
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = Color(0xFF0F172A).copy(alpha = 0.85f),
+                shadowElevation = 2.dp,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(8.dp)
+            ) {
+                Text(
+                    text = selectedFilter.titleFa,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                )
+            }
+
+            // برگه سفید شناور با سایه ملایم و نسبت تطبیق‌پذیر به تصویر افقی یا عمودی
+            Box(
+                modifier = Modifier
+                    .graphicsLayer(
+                        scaleX = scale,
+                        scaleY = scale,
+                        translationX = offset.x,
+                        translationY = offset.y
+                    )
+                    .padding(8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Surface(
+                    modifier = Modifier
+                        .wrapContentSize()
+                        .shadow(
+                            elevation = 12.dp,
+                            shape = RoundedCornerShape(8.dp),
+                            spotColor = Color(0x330F172A),
+                            ambientColor = Color(0x1A0F172A)
+                        )
+                        .border(1.dp, Color(0xFFCBD5E1), RoundedCornerShape(8.dp)),
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color.White
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .background(Color.White)
+                            .padding(10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        val displayBitmap = if (selectedPageIndex in allPages.indices) allPages[selectedPageIndex] else (processedBitmap ?: currentRawBitmap)
+                        Image(
+                            bitmap = displayBitmap.asImageBitmap(),
+                            contentDescription = docTitle,
+                            modifier = Modifier
+                                .wrapContentSize()
+                                .clip(RoundedCornerShape(4.dp)),
+                            contentScale = ContentScale.Fit
+                        )
+
+                        // نشانگر در حال پردازش در صورت لودینگ
+                        if (isProcessing) {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color.Black.copy(alpha = 0.65f),
+                                modifier = Modifier.align(Alignment.Center)
                             ) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(16.dp),
-                                    strokeWidth = 2.dp,
-                                    color = Color.White
-                                )
-                                Text(
-                                    text = "در حال پردازش و پاکسازی صفحه...",
-                                    color = Color.White,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp,
+                                        color = Color.White
+                                    )
+                                    Text(
+                                        text = "در حال پردازش و پاکسازی صفحه...",
+                                        color = Color.White,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
                             }
                         }
                     }
