@@ -28,7 +28,7 @@
     <!-- Certified Seal / Photocopy Badge -->
     <path
         android:fillColor="#10B981"
-        android:pathData="M66,62 a5,5 0 1,0 0.01,0 z"/>
+        android:pathData="M 66,57 C 68.76,57 71,59.24 71,62 C 71,64.76 68.76,67 66,67 C 63.24,67 61,64.76 61,62 C 61,59.24 63.24,57 66,57 Z"/>
     <path
         android:strokeColor="#FFFFFF"
         android:strokeWidth="1.2"
@@ -42,7 +42,7 @@
         android:strokeWidth="3.2"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M27,33 V25 c0,-2 1.6,-3.6 3.6,-3.6 H39"/>
+        android:pathData="M 27,33 L 27,25 C 27,23 28.6,21.4 30.6,21.4 L 39,21.4"/>
 
     <!-- Scanner Target Bracket - Top-Right -->
     <path
@@ -50,7 +50,7 @@
         android:strokeWidth="3.2"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M81,33 V25 c0,-2 -1.6,-3.6 -3.6,-3.6 H69"/>
+        android:pathData="M 81,33 L 81,25 C 81,23 79.4,21.4 77.4,21.4 L 69,21.4"/>
 
     <!-- Scanner Target Bracket - Bottom-Left -->
     <path
@@ -58,7 +58,7 @@
         android:strokeWidth="3.2"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M27,75 v8 c0,2 1.6,3.6 3.6,3.6 H39"/>
+        android:pathData="M 27,75 L 27,83 C 27,85 28.6,86.6 30.6,86.6 L 39,86.6"/>
 
     <!-- Scanner Target Bracket - Bottom-Right -->
     <path
@@ -66,7 +66,7 @@
         android:strokeWidth="3.2"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M81,75 v8 c0,2 -1.6,3.6 -3.6,3.6 H69"/>
+        android:pathData="M 81,75 L 81,83 C 81,85 79.4,86.6 77.4,86.6 L 69,86.6"/>
 
     <!-- Glowing Laser Scanning Beam -->
     <path

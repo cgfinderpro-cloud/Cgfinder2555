@@ -217,7 +217,7 @@ fun PreviewScreen(
                 val raw = DocStorageManager.loadBitmapFromUri(context, uri)
                 // اعمال فیلتر برگه جاری به برگه جدید تا خام نباشد
                 if (raw != null) {
-                    DocFilterEngine.applyFilter(raw, selectedFilter)
+                    DocFilterEngine.applyFilterSync(raw, selectedFilter)
                 } else null
             }
             if (loaded.isNotEmpty()) {
@@ -246,7 +246,7 @@ fun PreviewScreen(
             initialBitmap = pageToCrop,
             onConfirmCrop = { cropped ->
                 // اعمال فیلتر اسکنر انتخابی روی تصویر برش‌خورده تا تصویر برگه جدید به هیچ وجه خام نباشد
-                val filteredPage = DocFilterEngine.applyFilter(cropped, selectedFilter)
+                val filteredPage = DocFilterEngine.applyFilterSync(cropped, selectedFilter)
                 additionalPages = additionalPages + filteredPage
                 selectedPageIndex = allPages.size // سوئیچ به برگه جدید اضافه شده
                 pendingNewPageRawBitmap = null
