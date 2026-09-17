@@ -30,7 +30,8 @@ import {
   FilePlus,
   ZoomIn,
   ZoomOut,
-  RotateCcw
+  RotateCcw,
+  History
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 
@@ -105,6 +106,9 @@ export default function App() {
   const [additionalPages, setAdditionalPages] = useState<string[]>([]);
   const [selectedPageIndex, setSelectedPageIndex] = useState<number>(0);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [showAddPageDialog, setShowAddPageDialog] = useState(false);
+  const [showRecentDocsDialog, setShowRecentDocsDialog] = useState(false);
+  const [isAddingPageFlow, setIsAddingPageFlow] = useState(false);
 
   // وضعیت‌های زوم و جابه‌جایی تعاملی برای سند اسکن‌شده
   const [previewZoom, setPreviewZoom] = useState<number>(1);
@@ -295,21 +299,48 @@ export default function App() {
     }
   };
 
-  // انصراف از صفحه PerspectiveCropView و بازگشت به صفحه اصلی
+  // انصراف از صفحه PerspectiveCropView و بازگشت به صفحه قبلی
   const handleCancelCrop = () => {
     setCapturedImage(null);
-    setCurrentScreen('home');
-    showToast('عملیات برش و تراز کادر لغو شد');
+    if (isAddingPageFlow) {
+      setIsAddingPageFlow(false);
+      setCurrentScreen('preview');
+      showToast('عملیات افزودن برگه لغو شد');
+    } else {
+      setCurrentScreen('home');
+      showToast('عملیات برش و تراز کادر لغو شد');
+    }
   };
 
   // تایید نهایی در صفحه PerspectiveCropView و ارسال متغیر وضعیت تصویر پردازش‌شده به صفحه نمایش نهایی (Preview)
-  const handleConfirmCropAndNavigate = (e?: React.MouseEvent) => {
+  const handleConfirmCropAndNavigate = async (e?: React.MouseEvent) => {
     if (e) {
       e.stopPropagation();
       e.preventDefault();
     }
     setIsPerspectiveCropped(true);
     const finalProcessedImage = capturedImage || customImage || activeDoc.imageSrc;
+
+    if (isAddingPageFlow) {
+      // در جریان افزودن برگه جدید: فیلتر متناسب بر روی برگه اعمال می‌شود تا خام نباشد
+      let filteredPage = finalProcessedImage;
+      try {
+        filteredPage = await processDocumentImage(finalProcessedImage, selectedFilter);
+      } catch (err) {
+        console.error(err);
+      }
+      setAdditionalPages(prev => {
+        const next = [...prev, filteredPage];
+        setSelectedPageIndex(next.length); // سوئیچ به برگه تازه اضافه شده
+        return next;
+      });
+      setIsAddingPageFlow(false);
+      setCapturedImage(null);
+      setCurrentScreen('preview');
+      showToast('برگه جدید پس از برش و کادربندی با فیلتر هماهنگ به سند اضافه شد');
+      return;
+    }
+
     setCustomImage(finalProcessedImage);
 
     const newDocId = `doc-${Date.now()}`;
@@ -1020,15 +1051,48 @@ fun PerspectiveCropView(
         className="hidden" 
         id="camera-input"
       />
-      {/* مخفی: ورودی انتخاب چند فایل جهت تبدیل همزمان برگه‌ها به PDF واحد */}
+      {/* مخفی: ورودی انتخاب فایل جهت افزودن برگه جدید از گالری با هدایت به برش و پردازش */}
       <input 
         type="file" 
-        ref={multiPageFileInputRef} 
-        onChange={handleAddMultiplePages} 
+        id="add-page-gallery-input"
         accept="image/*" 
-        multiple
         className="hidden" 
-        id="multi-page-input"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+              const result = event.target?.result as string;
+              setShowAddPageDialog(false);
+              setIsAddingPageFlow(true);
+              handleStartCaptureFlow(result, `برگه جدید - ${file.name}`);
+            };
+            reader.readAsDataURL(file);
+          }
+          if (e.target) e.target.value = '';
+        }}
+      />
+      {/* مخفی: ورودی شبیه‌سازی دوربین جهت افزودن برگه جدید */}
+      <input 
+        type="file" 
+        id="add-page-camera-input"
+        accept="image/*" 
+        capture="environment"
+        className="hidden" 
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+              const result = event.target?.result as string;
+              setShowAddPageDialog(false);
+              setIsAddingPageFlow(true);
+              handleStartCaptureFlow(result, `برگه جدید دوربین`);
+            };
+            reader.readAsDataURL(file);
+          }
+          if (e.target) e.target.value = '';
+        }}
       />
 
       {/* نوار بالای پنل تست و مدیریت پروژه */}
@@ -1488,13 +1552,13 @@ fun PerspectiveCropView(
                         </button>
                       </div>
 
-                      {/* ردیف دکمه افزودن و برگه‌ها با استایل مدرن و سایه ملایم */}
+                      {/* ردیف دکمه افزودن و برگه‌ها با استایل مدرن و سایه ملایم (چیدمان راست‌چین) */}
                       <div className="flex items-center gap-2 overflow-x-auto pb-1 pt-0.5 scrollbar-none">
-                        {/* دکمه افزودن برگه */}
+                        {/* دکمه افزودن برگه (سمت راست برگه‌ها جهت انطباق کامل با چیدمان راست‌چین) */}
                         <button
-                          onClick={() => multiPageFileInputRef.current?.click()}
+                          onClick={() => setShowAddPageDialog(true)}
                           className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-b from-sky-50 to-blue-50/60 hover:from-sky-100 hover:to-blue-100 text-sky-700 border border-sky-200/80 rounded-xl text-xs font-bold whitespace-nowrap shadow-xs hover:shadow-sm active:scale-95 transition-all shrink-0 cursor-pointer"
-                          title="افزودن تصویر یا سند جدید به PDF"
+                          title="افزودن برگه جدید (دوربین، گالری یا اسناد اخیر)"
                         >
                           <div className="w-4 h-4 rounded-md bg-sky-200/70 text-sky-800 flex items-center justify-center">
                             <Plus className="w-3 h-3" />
@@ -1850,6 +1914,142 @@ fun PerspectiveCropView(
                         </div>
                       </div>
                     </div>
+
+                    {/* دیالوگ پاپ‌آپ متریال دیزاین ۳ برای افزودن برگه جدید (دوربین، گالری، اسناد اخیر) */}
+                    {showAddPageDialog && (
+                      <div className="absolute inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+                        <div className="bg-white rounded-3xl p-5 w-full max-w-[320px] shadow-2xl border border-slate-200 text-right space-y-4 animate-in fade-in zoom-in-95 duration-150">
+                          <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                            <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                              <Plus className="w-4 h-4 text-sky-600" />
+                              <span>افزودن برگه جدید</span>
+                            </h3>
+                            <button 
+                              onClick={() => setShowAddPageDialog(false)}
+                              className="p-1 text-slate-400 hover:text-slate-600 rounded-lg"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                          <p className="text-xs text-slate-500 leading-relaxed">
+                            منبع سند جدید را انتخاب کنید. پس از انتخاب، سند به بخش برش و تراز کادر منتقل شده و با فیلتر هماهنگ به PDF اضافه می‌گردد:
+                          </p>
+
+                          <div className="space-y-2">
+                            {/* ۱. عکس‌برداری با دوربین */}
+                            <button
+                              onClick={() => {
+                                setShowAddPageDialog(false);
+                                setIsAddingPageFlow(true);
+                                const sample = createGlossyDocumentTestImage();
+                                handleStartCaptureFlow(sample, `برگه جدید دوربین - ${new Date().toLocaleDateString('fa-IR')}`);
+                                showToast('عکسبرداری برگه جدید انجام شد؛ در حال هدایت به PerspectiveCropView جهت برش');
+                              }}
+                              className="w-full flex items-center gap-3 p-3 rounded-2xl bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200/80 transition-all font-bold text-xs active:scale-[0.98]"
+                            >
+                              <div className="w-9 h-9 rounded-xl bg-sky-600 text-white flex items-center justify-center shrink-0 shadow-sm">
+                                <Camera className="w-4 h-4" />
+                              </div>
+                              <div className="text-right">
+                                <span className="block font-bold">عکس‌برداری با دوربین</span>
+                                <span className="text-[10px] text-sky-600/80 font-normal">عکس جدید با دوربین و برش خودکار</span>
+                              </div>
+                            </button>
+
+                            {/* ۲. انتخاب از گالری تصاویر */}
+                            <button
+                              onClick={() => {
+                                const el = document.getElementById('add-page-gallery-input') as HTMLInputElement;
+                                if (el) el.click();
+                              }}
+                              className="w-full flex items-center gap-3 p-3 rounded-2xl bg-teal-50 hover:bg-teal-100 text-teal-900 border border-teal-200/80 transition-all font-bold text-xs active:scale-[0.98]"
+                            >
+                              <div className="w-9 h-9 rounded-xl bg-teal-600 text-white flex items-center justify-center shrink-0 shadow-sm">
+                                <ImageIcon className="w-4 h-4" />
+                              </div>
+                              <div className="text-right">
+                                <span className="block font-bold">انتخاب از گالری</span>
+                                <span className="text-[10px] text-teal-700/80 font-normal">انتخاب تصویر از حافظه دستگاه</span>
+                              </div>
+                            </button>
+
+                            {/* ۳. انتخاب از اسناد اخیر فتوکپی‌شده */}
+                            <button
+                              onClick={() => {
+                                setShowAddPageDialog(false);
+                                setShowRecentDocsDialog(true);
+                              }}
+                              className="w-full flex items-center gap-3 p-3 rounded-2xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200/80 transition-all font-bold text-xs active:scale-[0.98]"
+                            >
+                              <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-sm">
+                                <History className="w-4 h-4" />
+                              </div>
+                              <div className="text-right">
+                                <span className="block font-bold">انتخاب از اسناد اخیر</span>
+                                <span className="text-[10px] text-amber-700/80 font-normal">افزودن یکی از مدارک قبلی به این PDF</span>
+                              </div>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* دیالوگ انتخاب از اسناد و مدارک قبلی */}
+                    {showRecentDocsDialog && (
+                      <div className="absolute inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+                        <div className="bg-white rounded-3xl p-5 w-full max-w-[320px] shadow-2xl border border-slate-200 text-right space-y-3 animate-in fade-in zoom-in-95 duration-150">
+                          <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                            <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                              <History className="w-4 h-4 text-amber-600" />
+                              <span>انتخاب از اسناد اخیر</span>
+                            </h3>
+                            <button 
+                              onClick={() => setShowRecentDocsDialog(false)}
+                              className="p-1 text-slate-400 hover:text-slate-600 rounded-lg"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                          
+                          <div className="max-h-[260px] overflow-y-auto space-y-2 pr-1">
+                            {documents.map(doc => (
+                              <div
+                                key={doc.id}
+                                onClick={async () => {
+                                  setShowRecentDocsDialog(false);
+                                  const docImg = doc.imageSrc || createGlossyDocumentTestImage();
+                                  let filtered = docImg;
+                                  try {
+                                    filtered = await processDocumentImage(docImg, selectedFilter);
+                                  } catch (e) {
+                                    console.error(e);
+                                  }
+                                  setAdditionalPages(prev => {
+                                    const next = [...prev, filtered];
+                                    setSelectedPageIndex(next.length);
+                                    return next;
+                                  });
+                                  showToast(`سند «${doc.title}» به عنوان برگه جدید به PDF اضافه شد`);
+                                }}
+                                className="p-2.5 rounded-xl border border-slate-200 hover:border-sky-400 hover:bg-sky-50/50 cursor-pointer flex items-center gap-2.5 transition-all text-right"
+                              >
+                                <div className="w-10 h-12 bg-slate-100 rounded-lg border border-slate-200 overflow-hidden shrink-0 flex items-center justify-center">
+                                  {doc.imageSrc ? (
+                                    <img src={doc.imageSrc} alt="" className="w-full h-full object-cover" />
+                                  ) : (
+                                    <FileText className="w-5 h-5 text-slate-400" />
+                                  )}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <h4 className="font-bold text-xs text-slate-900 truncate">{doc.title}</h4>
+                                  <p className="text-[10px] text-slate-500 mt-0.5">{doc.datePersian} • {getFilterLabel(doc.filter)}</p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

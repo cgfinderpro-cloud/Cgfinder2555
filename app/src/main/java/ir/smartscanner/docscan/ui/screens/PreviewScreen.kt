@@ -1,6 +1,9 @@
 package ir.smartscanner.docscan.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -12,19 +15,26 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoFixHigh
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Contrast
 import androidx.compose.material.icons.filled.Crop
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Refresh
@@ -49,6 +59,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import ir.smartscanner.docscan.model.DocumentItem
 import ir.smartscanner.docscan.model.ScanFilter
 import ir.smartscanner.docscan.ui.components.PerspectiveCropView
@@ -56,6 +68,7 @@ import ir.smartscanner.docscan.ui.theme.*
 import ir.smartscanner.docscan.util.DocFilterEngine
 import ir.smartscanner.docscan.util.DocStorageManager
 import kotlinx.coroutines.launch
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -109,21 +122,113 @@ fun PreviewScreen(
     }
 
     // انتخابی چند تصویر از گالری جهت افزودن برگه‌های جدید به PDF
+    var showAddPageDialog by remember { mutableStateOf(false) }
+    var showRecentDocsDialog by remember { mutableStateOf(false) }
+    var pendingNewPageRawBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var tempAddPageCameraUri by remember { mutableStateOf<Uri?>(null) }
+
+    // هدایت به برش پرسپکتیو برای برگه جدید
+    fun startEditingNewPage(rawBmp: Bitmap) {
+        pendingNewPageRawBitmap = rawBmp
+    }
+
+    // لانچرهای دوربین برای افزودن برگه
+    val addPageTakePictureLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success && tempAddPageCameraUri != null) {
+            val bmp = DocFilterEngine.loadBitmapFromUri(context, tempAddPageCameraUri!!)
+            if (bmp != null) {
+                startEditingNewPage(bmp)
+            } else {
+                Toast.makeText(context, "خطا در بارگذاری عکس", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    val addPagePreviewCameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicturePreview()
+    ) { bmp: Bitmap? ->
+        if (bmp != null) {
+            startEditingNewPage(bmp)
+        }
+    }
+
+    val launchAddPageCameraDirectly = {
+        try {
+            val cameraDir = File(context.cacheDir, "camera").apply { if (!exists()) mkdirs() }
+            val photoFile = File(cameraDir, "camera_page_${System.currentTimeMillis()}.jpg")
+            val photoUri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                photoFile
+            )
+            tempAddPageCameraUri = photoUri
+            addPageTakePictureLauncher.launch(photoUri)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            try {
+                addPagePreviewCameraLauncher.launch(null)
+            } catch (ex: Exception) {
+                Toast.makeText(context, "خطا در باز کردن دوربین", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    val addPageCameraPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            launchAddPageCameraDirectly()
+        } else {
+            Toast.makeText(context, "جهت عکس‌برداری از سند جدید، مجوز دوربین الزامی است", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    val onLaunchAddPageCamera = {
+        val permission = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA)
+        if (permission == PackageManager.PERMISSION_GRANTED) {
+            launchAddPageCameraDirectly()
+        } else {
+            addPageCameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
+
+    // لانچر گالری برای برگه جدید با انتقال به صفحه ویرایش و برش
+    val addPageGalleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            val bmp = DocFilterEngine.loadBitmapFromUri(context, uri)
+            if (bmp != null) {
+                startEditingNewPage(bmp)
+            } else {
+                Toast.makeText(context, "خطا در بارگذاری تصویر از گالری", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    // انتخابی چند تصویر مستقیم به صورت اختیاری
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetMultipleContents()
     ) { uris ->
         if (uris.isNotEmpty()) {
             val loaded = uris.mapNotNull { uri ->
-                DocStorageManager.loadBitmapFromUri(context, uri)
+                val raw = DocStorageManager.loadBitmapFromUri(context, uri)
+                // اعمال فیلتر برگه جاری به برگه جدید تا خام نباشد
+                if (raw != null) {
+                    DocFilterEngine.applyFilter(raw, selectedFilter)
+                } else null
             }
             if (loaded.isNotEmpty()) {
                 additionalPages = additionalPages + loaded
-                Toast.makeText(context, "${loaded.size} برگه جدید به سند اضافه شد", Toast.LENGTH_SHORT).show()
+                selectedPageIndex = allPages.size + loaded.size - 1
+                Toast.makeText(context, "${loaded.size} برگه جدید با فیلتر هماهنگ به سند اضافه شد", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
-    // وضعیت فعال بودن حالت برش ۴ گوشه و پرسپکتیو
+    // وضعیت فعال بودن حالت برش ۴ گوشه و پرسپکتیو برای برگه اصلی
     var isCropModeOpen by remember { mutableStateOf(false) }
 
     // اعمال فیلتر هوشمند هر زمان تصویر پایه یا فیلتر تغییر کند
@@ -132,6 +237,26 @@ fun PreviewScreen(
         val filtered = DocFilterEngine.applyFilter(currentRawBitmap, selectedFilter)
         processedBitmap = filtered
         isProcessing = false
+    }
+
+    // حالت ویرایش و برش پرسپکتیو برگه جدید اضافه شده (جلوگیری از نمایش تصویر خام)
+    val pageToCrop = pendingNewPageRawBitmap
+    if (pageToCrop != null) {
+        PerspectiveCropView(
+            initialBitmap = pageToCrop,
+            onConfirmCrop = { cropped ->
+                // اعمال فیلتر اسکنر انتخابی روی تصویر برش‌خورده تا تصویر برگه جدید به هیچ وجه خام نباشد
+                val filteredPage = DocFilterEngine.applyFilter(cropped, selectedFilter)
+                additionalPages = additionalPages + filteredPage
+                selectedPageIndex = allPages.size // سوئیچ به برگه جدید اضافه شده
+                pendingNewPageRawBitmap = null
+                Toast.makeText(context, "برگه جدید با موفقیت ویرایش و اضافه شد", Toast.LENGTH_SHORT).show()
+            },
+            onCancel = {
+                pendingNewPageRawBitmap = null
+            }
+        )
+        return
     }
 
     // در صورت باز بودن حالت برش، کامپوننت ۴ گوشه نمایش داده می‌شود
@@ -363,19 +488,19 @@ fun PreviewScreen(
                             }
                         }
 
-                        // ردیف اسکرول برگه‌ها و دکمه افزودن برگه با سایه و طراحی ارگونومیک
+                        // ردیف اسکرول برگه‌ها و دکمه افزودن برگه با سایه و طراحی ارگونومیک (چیدمان راست‌چین)
                         LazyRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // دکمه افزودن برگه
+                            // دکمه افزودن برگه (سمت راست برگه‌ها جهت انطباق کامل با چیدمان راست‌چین)
                             item {
                                 Surface(
                                     shape = RoundedCornerShape(10.dp),
                                     color = Color(0xFFF0F9FF),
                                     border = BorderStroke(1.dp, Color(0xFFBAE6FD)),
                                     shadowElevation = 1.dp,
-                                    modifier = Modifier.clickable { imagePickerLauncher.launch("image/*") }
+                                    modifier = Modifier.clickable { showAddPageDialog = true }
                                 ) {
                                     Row(
                                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
@@ -390,7 +515,7 @@ fun PreviewScreen(
                                             Box(contentAlignment = Alignment.Center) {
                                                 Icon(
                                                     imageVector = Icons.Default.Add,
-                                                    contentDescription = "افزودن برگه",
+                                                    contentDescription = "افزودن برگه جدید",
                                                     tint = PrimaryBlue,
                                                     modifier = Modifier.size(14.dp)
                                                 )
@@ -406,7 +531,7 @@ fun PreviewScreen(
                                 }
                             }
 
-                            // لیست برگه‌ها
+                            // لیست برگه‌های سند (برگه ۱ اصلی و برگه‌های بعدی)
                             itemsIndexed(allPages) { index, _ ->
                                 val isSelected = selectedPageIndex == index
                                 Surface(
@@ -770,6 +895,320 @@ fun PreviewScreen(
                 }
             }
         }
+    }
+
+    // دیالوگ هوشمند انتخاب روش افزودن برگه جدید (دوربین، گالری، اسناد اخیر)
+    if (showAddPageDialog) {
+        AlertDialog(
+            onDismissRequest = { showAddPageDialog = false },
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = null,
+                        tint = PrimaryBlue,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Text(
+                        text = "افزودن برگه جدید به سند",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "تصویر برگه جدید پس از انتخاب مستقیماً به بخش کادربندی و تنظیم پرسپکتیو هدایت می‌شود تا با فیلتر هماهنگ به سند افزوده گردد:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary,
+                        lineHeight = 20.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // گزینه ۱: عکس‌برداری با دوربین
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFFF0FDF4),
+                        border = BorderStroke(1.dp, Color(0xFFBBF7D0)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                showAddPageDialog = false
+                                onLaunchAddPageCamera()
+                            }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = Color(0xFF22C55E),
+                                modifier = Modifier.size(38.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.CameraAlt,
+                                        contentDescription = "دوربین",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                            Column {
+                                Text(
+                                    text = "عکس‌برداری با دوربین",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF15803D)
+                                )
+                                Text(
+                                    text = "ثبت برگه جدید با دوربین و تصحیح هوشمند زاویه",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFF166534),
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                    }
+
+                    // گزینه ۲: انتخاب از گالری
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFFF0F9FF),
+                        border = BorderStroke(1.dp, Color(0xFFBAE6FD)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                showAddPageDialog = false
+                                addPageGalleryLauncher.launch("image/*")
+                            }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = PrimaryBlue,
+                                modifier = Modifier.size(38.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.PhotoLibrary,
+                                        contentDescription = "گالری",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                            Column {
+                                Text(
+                                    text = "انتخاب از گالری تصاویر",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = PrimaryBlueDark
+                                )
+                                Text(
+                                    text = "بارگذاری تصویر از حافظه دستگاه و تنظیم کادر",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = PrimaryBlue,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                    }
+
+                    // گزینه ۳: انتخاب از مدارک فتوکپی شده قبلی
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFFFAF5FF),
+                        border = BorderStroke(1.dp, Color(0xFFE9D5FF)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                showAddPageDialog = false
+                                showRecentDocsDialog = true
+                            }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = Color(0xFF9333EA),
+                                modifier = Modifier.size(38.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.History,
+                                        contentDescription = "مدارک اخیر",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                            Column {
+                                Text(
+                                    text = "انتخاب از اسناد و فتوکپی‌های قبلی",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF7E22CE)
+                                )
+                                Text(
+                                    text = "افزودن یکی از اسناد اسکن‌شده در حافظه برنامه",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFF6B21A8),
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showAddPageDialog = false }) {
+                    Text("انصراف", color = TextSecondary)
+                }
+            }
+        )
+    }
+
+    // دیالوگ لیست مدارک اسکن‌شده قبلی
+    if (showRecentDocsDialog) {
+        val savedDocs = remember { DocStorageManager.getAllDocuments(context) }
+        AlertDialog(
+            onDismissRequest = { showRecentDocsDialog = false },
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Description,
+                        contentDescription = null,
+                        tint = PrimaryBlue
+                    )
+                    Text(
+                        text = "انتخاب از اسناد قبلی",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            },
+            text = {
+                if (savedDocs.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "هنوز مدرک ذخیره‌شده‌ای در حافظه وجود ندارد.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextTertiary
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 300.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(savedDocs) { doc ->
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = SurfaceVariantLight,
+                                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        showRecentDocsDialog = false
+                                        val docBmp = doc.bitmap
+                                            ?: (doc.filePath?.let { DocStorageManager.loadSampledBitmap(it, 1600, 2200) })
+                                        if (docBmp != null) {
+                                            startEditingNewPage(docBmp)
+                                        } else {
+                                            Toast.makeText(context, "خطا در خواندن مدرک", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    if (doc.bitmap != null) {
+                                        Image(
+                                            bitmap = doc.bitmap.asImageBitmap(),
+                                            contentDescription = doc.title,
+                                            modifier = Modifier
+                                                .size(36.dp)
+                                                .clip(RoundedCornerShape(6.dp)),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                    } else {
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = PrimaryBlueContainer,
+                                            modifier = Modifier.size(36.dp)
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Description,
+                                                    contentDescription = null,
+                                                    tint = PrimaryBlue,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = doc.title,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = TextPrimary,
+                                            maxLines = 1
+                                        )
+                                        Text(
+                                            text = "${doc.datePersian} • ${doc.filter.titleFa}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = TextTertiary,
+                                            fontSize = 11.sp
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showRecentDocsDialog = false }) {
+                    Text("بستن")
+                }
+            }
+        )
     }
 
     // دیالوگ تغییر نام مدرک
