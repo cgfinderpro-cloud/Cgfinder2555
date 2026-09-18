@@ -80,6 +80,11 @@ fun SmartScannerApp() {
     var capturedRawBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var capturedDocTitle by remember { mutableStateOf<String>("") }
 
+    // متغیرهای وضعیت نوار چندبرگه‌ای پی‌دی‌اف و هدایت به صفحه اصلی
+    var currentPdfAdditionalPages by remember { mutableStateOf<List<Bitmap>>(emptyList()) }
+    var isAddingPageMode by remember { mutableStateOf(false) }
+    var activePreviewDocId by remember { mutableStateOf<String?>(null) }
+
     // هدایت بلافاصله به صفحه تنظیم کادر و برش پرسپکتیو (PerspectiveCropView) به جای پیش‌نمایش ساده
     fun openCropScreenForNewCapture(bitmap: Bitmap, title: String) {
         capturedRawBitmap = bitmap
@@ -178,10 +183,28 @@ fun SmartScannerApp() {
     ) {
         // ۱. صفحه اصلی (Home)
         composable(Screen.Home.route) {
+            val targetDoc = documentList.find { it.id == activePreviewDocId } ?: pendingDocument
             HomeScreen(
                 documents = documentList,
                 onOpenDocument = { docId ->
-                    navController.navigate(Screen.Preview.createRoute(docId))
+                    if (isAddingPageMode && activePreviewDocId != null) {
+                        val selectedDoc = documentList.find { it.id == docId }
+                        if (selectedDoc != null) {
+                            val bmp = selectedDoc.bitmap
+                                ?: (selectedDoc.filePath?.let { DocStorageManager.loadSampledBitmap(it, 1600, 2200) })
+                                ?: DocFilterEngine.createSampleDocBitmap(selectedDoc.title)
+                            currentPdfAdditionalPages = currentPdfAdditionalPages + bmp
+                            isAddingPageMode = false
+                            Toast.makeText(context, "سند «${selectedDoc.title}» به نوار پی‌دی‌اف اضافه شد", Toast.LENGTH_SHORT).show()
+                            navController.navigate(Screen.Preview.createRoute(activePreviewDocId!!)) {
+                                popUpTo(Screen.Home.route) { inclusive = false }
+                            }
+                        }
+                    } else {
+                        currentPdfAdditionalPages = emptyList()
+                        activePreviewDocId = docId
+                        navController.navigate(Screen.Preview.createRoute(docId))
+                    }
                 },
                 onDeleteDocument = { docId ->
                     DocStorageManager.deleteDocument(context, docId)
@@ -191,6 +214,16 @@ fun SmartScannerApp() {
                 onLaunchCamera = onLaunchCamera,
                 onLaunchGallery = {
                     galleryLauncher.launch("image/*")
+                },
+                isAddingPageMode = isAddingPageMode,
+                targetDocTitle = targetDoc?.title ?: "",
+                onCancelAddPage = {
+                    isAddingPageMode = false
+                    if (activePreviewDocId != null) {
+                        navController.navigate(Screen.Preview.createRoute(activePreviewDocId!!)) {
+                            popUpTo(Screen.Home.route) { inclusive = false }
+                        }
+                    }
                 }
             )
         }
@@ -202,25 +235,43 @@ fun SmartScannerApp() {
                 PerspectiveCropView(
                     initialBitmap = rawBitmap,
                     onConfirmCrop = { processedBitmap ->
-                        // پس از تأیید نهایی، متغیر وضعیت تصویر پردازش‌شده به صفحه نمایش نهایی ارسال می‌شود
-                        val newDocId = "new_${System.currentTimeMillis()}"
-                        val newDoc = DocumentItem(
-                            id = newDocId,
-                            title = capturedDocTitle.ifEmpty { "سند اسکن‌شده - ${DocStorageManager.getPersianDateNow()}" },
-                            datePersian = DocStorageManager.getPersianDateNow(),
-                            filter = ScanFilter.PHOTOCOPY,
-                            pageCount = 1,
-                            bitmap = processedBitmap
-                        )
-                        pendingDocument = newDoc
-                        // هدایت مطمئن به صفحه پیش‌نمایش و خارج کردن صفحه برش از BackStack
-                        navController.navigate(Screen.Preview.createRoute(newDocId)) {
-                            popUpTo(Screen.Crop.route) { inclusive = true }
+                        if (isAddingPageMode && activePreviewDocId != null) {
+                            currentPdfAdditionalPages = currentPdfAdditionalPages + processedBitmap
+                            isAddingPageMode = false
+                            capturedRawBitmap = null
+                            Toast.makeText(context, "برگه جدید با موفقیت به نوار پی‌دی‌اف اضافه شد", Toast.LENGTH_SHORT).show()
+                            navController.navigate(Screen.Preview.createRoute(activePreviewDocId!!)) {
+                                popUpTo(Screen.Crop.route) { inclusive = true }
+                            }
+                        } else {
+                            // پس از تأیید نهایی، متغیر وضعیت تصویر پردازش‌شده به صفحه نمایش نهایی ارسال می‌شود
+                            val newDocId = "new_${System.currentTimeMillis()}"
+                            val newDoc = DocumentItem(
+                                id = newDocId,
+                                title = capturedDocTitle.ifEmpty { "سند اسکن‌شده - ${DocStorageManager.getPersianDateNow()}" },
+                                datePersian = DocStorageManager.getPersianDateNow(),
+                                filter = ScanFilter.PHOTOCOPY,
+                                pageCount = 1,
+                                bitmap = processedBitmap
+                            )
+                            pendingDocument = newDoc
+                            currentPdfAdditionalPages = emptyList()
+                            activePreviewDocId = newDocId
+                            // هدایت مطمئن به صفحه پیش‌نمایش و خارج کردن صفحه برش از BackStack
+                            navController.navigate(Screen.Preview.createRoute(newDocId)) {
+                                popUpTo(Screen.Crop.route) { inclusive = true }
+                            }
                         }
                     },
                     onCancel = {
                         capturedRawBitmap = null
-                        navController.popBackStack()
+                        if (isAddingPageMode && activePreviewDocId != null) {
+                            navController.navigate(Screen.Preview.createRoute(activePreviewDocId!!)) {
+                                popUpTo(Screen.Crop.route) { inclusive = true }
+                            }
+                        } else {
+                            navController.popBackStack()
+                        }
                     }
                 )
             } else if (pendingDocument == null) {
@@ -244,17 +295,33 @@ fun SmartScannerApp() {
                 documentList.find { it.id == docId }
             }
 
+            if (docId != null) {
+                activePreviewDocId = docId
+            }
+
             PreviewScreen(
                 document = document,
+                additionalPages = currentPdfAdditionalPages,
+                onAdditionalPagesChange = { currentPdfAdditionalPages = it },
+                onAddPageFromHome = {
+                    isAddingPageMode = true
+                    navController.navigate(Screen.Home.route)
+                },
                 onBack = {
                     pendingDocument = null
                     capturedRawBitmap = null
+                    currentPdfAdditionalPages = emptyList()
+                    activePreviewDocId = null
+                    isAddingPageMode = false
                     navController.popBackStack(Screen.Home.route, inclusive = false)
                 },
                 onSaveSuccess = {
                     refreshDocuments()
                     pendingDocument = null
                     capturedRawBitmap = null
+                    currentPdfAdditionalPages = emptyList()
+                    activePreviewDocId = null
+                    isAddingPageMode = false
                     navController.popBackStack(Screen.Home.route, inclusive = false)
                 }
             )

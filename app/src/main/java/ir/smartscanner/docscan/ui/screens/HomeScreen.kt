@@ -1,5 +1,6 @@
 package ir.smartscanner.docscan.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -37,7 +38,10 @@ fun HomeScreen(
     onOpenDocument: (String) -> Unit,
     onDeleteDocument: (String) -> Unit,
     onLaunchCamera: () -> Unit,
-    onLaunchGallery: () -> Unit
+    onLaunchGallery: () -> Unit,
+    isAddingPageMode: Boolean = false,
+    targetDocTitle: String = "",
+    onCancelAddPage: () -> Unit = {}
 ) {
     var isSearchActive by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
@@ -212,6 +216,60 @@ fun HomeScreen(
             contentPadding = PaddingValues(top = 16.dp, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            if (isAddingPageMode) {
+                item {
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = Color(0xFFEFF6FF),
+                        border = BorderStroke(1.dp, Color(0xFF93C5FD)),
+                        shadowElevation = 2.dp,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = PrimaryBlue,
+                                modifier = Modifier.size(38.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.Description,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = if (targetDocTitle.isNotBlank()) "افزودن برگه به نوار PDF «$targetDocTitle»" else "افزودن برگه به نوار پی‌دی‌اف",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF1E3A8A)
+                                )
+                                Text(
+                                    text = "از مدارک زیر انتخاب کنید یا با دوربین/گالری سند جدید بسازید",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF2563EB)
+                                )
+                            }
+                            TextButton(
+                                onClick = onCancelAddPage,
+                                colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFF475569))
+                            ) {
+                                Text(text = "انصراف", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+
             item {
                 Row(
                     modifier = Modifier

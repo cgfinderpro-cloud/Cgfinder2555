@@ -30,8 +30,7 @@ import {
   FilePlus,
   ZoomIn,
   ZoomOut,
-  RotateCcw,
-  History
+  RotateCcw
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 
@@ -106,9 +105,7 @@ export default function App() {
   const [additionalPages, setAdditionalPages] = useState<string[]>([]);
   const [selectedPageIndex, setSelectedPageIndex] = useState<number>(0);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
-  const [showAddPageDialog, setShowAddPageDialog] = useState(false);
-  const [showRecentDocsDialog, setShowRecentDocsDialog] = useState(false);
-  const [isAddingPageFlow, setIsAddingPageFlow] = useState(false);
+  const [isAddingPageToPdf, setIsAddingPageToPdf] = useState(false);
 
   // وضعیت‌های زوم و جابه‌جایی تعاملی برای سند اسکن‌شده
   const [previewZoom, setPreviewZoom] = useState<number>(1);
@@ -126,6 +123,15 @@ export default function App() {
   const handleOpenDoc = (id: string) => {
     const doc = documents.find(d => d.id === id);
     if (doc) {
+      if (isAddingPageToPdf) {
+        const newPageImg = doc.imageSrc || createGlossyDocumentTestImage();
+        setAdditionalPages(prev => [...prev, newPageImg]);
+        setSelectedPageIndex(additionalPages.length + 1);
+        setIsAddingPageToPdf(false);
+        setCurrentScreen('preview');
+        showToast(`سند «${doc.title}» به نوار پی‌دی‌اف اضافه شد`);
+        return;
+      }
       setActiveDocId(id);
       setSelectedFilter(doc.filter);
       setCurrentScreen('preview');
@@ -299,13 +305,13 @@ export default function App() {
     }
   };
 
-  // انصراف از صفحه PerspectiveCropView و بازگشت به صفحه قبلی
+  // انصراف از صفحه PerspectiveCropView و بازگشت
   const handleCancelCrop = () => {
     setCapturedImage(null);
-    if (isAddingPageFlow) {
-      setIsAddingPageFlow(false);
+    if (isAddingPageToPdf) {
+      setIsAddingPageToPdf(false);
       setCurrentScreen('preview');
-      showToast('عملیات افزودن برگه لغو شد');
+      showToast('افزودن برگه جدید به نوار پی‌دی‌اف لغو شد');
     } else {
       setCurrentScreen('home');
       showToast('عملیات برش و تراز کادر لغو شد');
@@ -313,7 +319,7 @@ export default function App() {
   };
 
   // تایید نهایی در صفحه PerspectiveCropView و ارسال متغیر وضعیت تصویر پردازش‌شده به صفحه نمایش نهایی (Preview)
-  const handleConfirmCropAndNavigate = async (e?: React.MouseEvent) => {
+  const handleConfirmCropAndNavigate = (e?: React.MouseEvent) => {
     if (e) {
       e.stopPropagation();
       e.preventDefault();
@@ -321,23 +327,13 @@ export default function App() {
     setIsPerspectiveCropped(true);
     const finalProcessedImage = capturedImage || customImage || activeDoc.imageSrc;
 
-    if (isAddingPageFlow) {
-      // در جریان افزودن برگه جدید: فیلتر متناسب بر روی برگه اعمال می‌شود تا خام نباشد
-      let filteredPage = finalProcessedImage;
-      try {
-        filteredPage = await processDocumentImage(finalProcessedImage, selectedFilter);
-      } catch (err) {
-        console.error(err);
-      }
-      setAdditionalPages(prev => {
-        const next = [...prev, filteredPage];
-        setSelectedPageIndex(next.length); // سوئیچ به برگه تازه اضافه شده
-        return next;
-      });
-      setIsAddingPageFlow(false);
+    if (isAddingPageToPdf) {
+      setAdditionalPages(prev => [...prev, finalProcessedImage || createGlossyDocumentTestImage()]);
+      setSelectedPageIndex(additionalPages.length + 1);
+      setIsAddingPageToPdf(false);
       setCapturedImage(null);
       setCurrentScreen('preview');
-      showToast('برگه جدید پس از برش و کادربندی با فیلتر هماهنگ به سند اضافه شد');
+      showToast('برگه جدید از دوربین/گالری با موفقیت به نوار پی‌دی‌اف اضافه شد');
       return;
     }
 
@@ -654,98 +650,92 @@ sealed class Screen(val route: String) {
     },
     'MainActivity.kt': {
       lang: 'kotlin',
-      desc: 'مدیریت جریان نویگیشن: هدایت فوری به PerspectiveCropView پس از دوربین/گالری و تحویل داده پردازش‌شده به PreviewScreen',
-      code: `// ۱. تعریف متغیرهای نگهداری موقت تصویر خام منبع
-var capturedRawBitmap by remember { mutableStateOf<Bitmap?>(null) }
-var capturedDocTitle by remember { mutableStateOf<String>("") }
+      desc: 'مدیریت جریان نویگیشن: هدایت بین صفحه اصلی، برش پرسپکتیو و پیش‌نمایش، همراه با مدیریت نوار چندبرگه‌ای PDF و هدایت به صفحه اصلی برای افزودن برگه',
+      code: `// متغیرهای وضعیت نوار چندبرگه‌ای پی‌دی‌اف و افزودن برگه از صفحه اصلی
+var currentPdfAdditionalPages by remember { mutableStateOf<List<Bitmap>>(emptyList()) }
+var isAddingPageMode by remember { mutableStateOf(false) }
+var activePreviewDocId by remember { mutableStateOf<String?>(null) }
 
-// ۲. متد بازگشایی آنی صفحه برش و پرسپکتیو به جای پیش‌نمایش ساده
-fun openCropScreenForNewCapture(bitmap: Bitmap, title: String) {
-    capturedRawBitmap = bitmap
-    capturedDocTitle = title
-    navController.navigate(Screen.Crop.route)
-}
-
-// ۳. پیکربندی گراف مسیرها با تفکیک وظایف
 NavHost(navController = navController, startDestination = Screen.Home.route) {
     composable(Screen.Home.route) {
+        val targetDoc = documentList.find { it.id == activePreviewDocId } ?: pendingDocument
         HomeScreen(
             documents = documentList,
-            onOpenDocument = { docId -> navController.navigate(Screen.Preview.createRoute(docId)) },
+            onOpenDocument = { docId ->
+                if (isAddingPageMode && activePreviewDocId != null) {
+                    val selectedDoc = documentList.find { it.id == docId }
+                    if (selectedDoc != null) {
+                        val bmp = selectedDoc.bitmap ?: DocFilterEngine.createSampleDocBitmap(selectedDoc.title)
+                        currentPdfAdditionalPages = currentPdfAdditionalPages + bmp
+                        isAddingPageMode = false
+                        navController.navigate(Screen.Preview.createRoute(activePreviewDocId!!))
+                    }
+                } else {
+                    currentPdfAdditionalPages = emptyList()
+                    activePreviewDocId = docId
+                    navController.navigate(Screen.Preview.createRoute(docId))
+                }
+            },
+            isAddingPageMode = isAddingPageMode,
+            targetDocTitle = targetDoc?.title ?: "",
+            onCancelAddPage = {
+                isAddingPageMode = false
+                activePreviewDocId?.let { navController.navigate(Screen.Preview.createRoute(it)) }
+            },
             onLaunchCamera = onLaunchCamera,
             onLaunchGallery = { galleryLauncher.launch("image/*") }
         )
     }
 
-    // بلافاصله پس از عکس‌برداری، کاربر به صفحه PerspectiveCropView هدایت می‌شود
     composable(Screen.Crop.route) {
         val rawBitmap = capturedRawBitmap
         if (rawBitmap != null) {
             PerspectiveCropView(
                 initialBitmap = rawBitmap,
                 onConfirmCrop = { processedBitmap ->
-                    // پس از تأیید نهایی، متغیر وضعیت تصویر پردازش‌شده به صفحه پیش‌نمایش نهایی ارسال می‌شود
-                    val newDocId = "new_\${System.currentTimeMillis()}"
-                    val newDoc = DocumentItem(
-                        id = newDocId,
-                        title = capturedDocTitle.ifEmpty { "سند اسکن‌شده - \${DocStorageManager.getPersianDateNow()}" },
-                        datePersian = DocStorageManager.getPersianDateNow(),
-                        filter = ScanFilter.PHOTOCOPY,
-                        pageCount = 1,
-                        bitmap = processedBitmap
-                    )
-                    pendingDocument = newDoc
-                    // هدایت مطمئن به صفحه پیش‌نمایش و خارج کردن صفحه برش از BackStack
-                    navController.navigate(Screen.Preview.createRoute(newDocId)) {
-                        popUpTo(Screen.Crop.route) { inclusive = true }
+                    if (isAddingPageMode && activePreviewDocId != null) {
+                        currentPdfAdditionalPages = currentPdfAdditionalPages + processedBitmap
+                        isAddingPageMode = false
+                        navController.navigate(Screen.Preview.createRoute(activePreviewDocId!!))
+                    } else {
+                        val newDocId = "new_\${System.currentTimeMillis()}"
+                        // ایجاد و ذخیره سند جدید
+                        navController.navigate(Screen.Preview.createRoute(newDocId))
                     }
-                },
-                onCancel = {
-                    capturedRawBitmap = null
-                    navController.popBackStack()
                 }
             )
-        } else if (pendingDocument == null) {
-            LaunchedEffect(Unit) {
-                navController.popBackStack(Screen.Home.route, inclusive = false)
-            }
         }
     }
 
-    // صفحه نمایش نهایی و فیلترها (سند اسکن‌شده در صفحه سفید تمیز)
     composable(Screen.Preview.route) { backStackEntry ->
         val docId = backStackEntry.arguments?.getString("docId")
-        val document = if (docId != null && pendingDocument?.id == docId) {
-            pendingDocument
-        } else {
-            documentList.find { it.id == docId }
-        }
+        val document = documentList.find { it.id == docId } ?: pendingDocument
         PreviewScreen(
             document = document,
-            onBack = {
-                pendingDocument = null
-                capturedRawBitmap = null
-                navController.popBackStack(Screen.Home.route, inclusive = false)
+            additionalPages = currentPdfAdditionalPages,
+            onAdditionalPagesChange = { currentPdfAdditionalPages = it },
+            onAddPageFromHome = {
+                isAddingPageMode = true
+                navController.navigate(Screen.Home.route)
             },
-            onSaveSuccess = {
-                refreshDocuments()
-                pendingDocument = null
-                capturedRawBitmap = null
-                navController.popBackStack(Screen.Home.route, inclusive = false)
-            }
+            onBack = { navController.popBackStack(Screen.Home.route, false) }
         )
     }
 }`
     },
     'HomeScreen.kt': {
       lang: 'kotlin',
-      desc: 'صفحه اصلی Jetpack Compose با اپ‌بار «اسکنر مدارک»، کارتهای مدارک اخیر و دو دکمه شناور دوربین و گالری',
+      desc: 'صفحه اصلی Jetpack Compose با بنر تعاملی افزودن برگه به نوار PDF، کارت‌های مدارک اخیر و دو دکمه شناور دوربین و گالری',
       code: `@Composable
 fun HomeScreen(
     documents: List<DocumentItem>,
     onOpenDocument: (String) -> Unit,
+    onDeleteDocument: (String) -> Unit,
     onLaunchCamera: () -> Unit,
-    onLaunchGallery: () -> Unit
+    onLaunchGallery: () -> Unit,
+    isAddingPageMode: Boolean = false,
+    targetDocTitle: String = "",
+    onCancelAddPage: () -> Unit = {}
 ) {
     Scaffold(
         topBar = {
@@ -754,68 +744,68 @@ fun HomeScreen(
             )
         },
         floatingActionButton = {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
-                horizontalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                ExtendedFloatingActionButton(
-                    onClick = onLaunchGallery,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(Icons.Default.PhotoLibrary, contentDescription = null)
-                    Text("گالری")
-                }
-                ExtendedFloatingActionButton(
-                    onClick = onLaunchCamera,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(Icons.Default.CameraAlt, contentDescription = null)
-                    Text("دوربین")
+            // دکمه‌های دوربین و گالری جهت افزودن مستقیم سند جدید
+        }
+    ) { padding ->
+        Column(modifier = Modifier.padding(padding)) {
+            // بنر راهنمای افزودن برگه جدید به نوار PDF در صورت فعال بودن
+            if (isAddingPageMode) {
+                AddPageBanner(
+                    targetDocTitle = targetDocTitle,
+                    onCancel = onCancelAddPage
+                )
+            }
+            // لیست مدارک اخیر
+            LazyColumn {
+                items(documents) { doc ->
+                    DocumentCard(doc = doc, onClick = { onOpenDocument(doc.id) })
                 }
             }
         }
-    ) { /* کارتهای شیک مدارک اخیر */ }
+    }
 }`
     },
     'PreviewScreen.kt': {
       lang: 'kotlin',
-      desc: 'صفحه پیش‌نمایش با ۴ حالت فیلتر (فتوکپی، سیاه و سفید، رنگی شفاف، اصلی) و دکمه‌های بازگشت، اشتراک‌گذاری، ذخیره',
+      desc: 'صفحه پیش‌نمایش و نوار تبدیل چندبرگه به PDF واحد با چینش راست‌چین (RTL) و دکمه «برگه جدید» در سمت راست برگه اصلی',
       code: `@Composable
 fun PreviewScreen(
     document: DocumentItem?,
+    additionalPages: List<Bitmap> = emptyList(),
+    onAdditionalPagesChange: (List<Bitmap>) -> Unit = {},
+    onAddPageFromHome: () -> Unit = {},
     onBack: () -> Unit,
-    onSave: (ScanFilter) -> Unit,
-    onShare: (ScanFilter) -> Unit
+    onSaveSuccess: () -> Unit = {}
 ) {
-    var selectedFilter by remember { mutableStateOf(ScanFilter.PHOTOCOPY) }
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(document?.title ?: "پیش‌نمایش مدرک") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "بازگشت")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { onShare(selectedFilter) }) {
-                        Icon(Icons.Default.Share, contentDescription = "اشتراک‌گذاری")
-                    }
-                    Button(onClick = { onSave(selectedFilter) }) {
-                        Icon(Icons.Default.Save, contentDescription = null)
-                        Text("ذخیره")
-                    }
+    // نوار تبدیل به PDF واحد در بالای پیش‌نمایش
+    // چیدمان راست‌چین (RTL) به گونه‌ای که دکمه «برگه جدید» در سمت راست «برگه ۱ (اصلی)» قرار می‌گیرد:
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // ۱. دکمه «برگه جدید» در سمت راست برگه اصلی
+            item {
+                Button(
+                    onClick = onAddPageFromHome,
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null)
+                    Text("برگه جدید")
                 }
-            )
-        },
-        bottomBar = {
-            // نوار ابزار پایین با ۴ حالت فیلتر: «فتوکپی»، «سیاه و سفید»، «رنگی شفاف» و «اصلی»
-            BottomFilterBar(
-                selected = selectedFilter,
-                onSelect = { selectedFilter = it }
-            )
+            }
+
+            // ۲. برگه ۱ (اصلی)
+            item {
+                PageChip(title = "برگه ۱ (اصلی)", isSelected = selectedPageIndex == 0)
+            }
+
+            // ۳. برگه‌های بعدی اضافه‌شده
+            itemsIndexed(additionalPages) { index, pageBitmap ->
+                PageChip(title = "برگه \${index + 2}", onRemove = { /* حذف برگه */ })
+            }
         }
-    ) { /* کادر نمایش تصویر مدرک در مرکز */ }
+    }
 }`
     },
     'DocFilterEngine.kt': {
@@ -1051,48 +1041,15 @@ fun PerspectiveCropView(
         className="hidden" 
         id="camera-input"
       />
-      {/* مخفی: ورودی انتخاب فایل جهت افزودن برگه جدید از گالری با هدایت به برش و پردازش */}
+      {/* مخفی: ورودی انتخاب چند فایل جهت تبدیل همزمان برگه‌ها به PDF واحد */}
       <input 
         type="file" 
-        id="add-page-gallery-input"
+        ref={multiPageFileInputRef} 
+        onChange={handleAddMultiplePages} 
         accept="image/*" 
+        multiple
         className="hidden" 
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) {
-            const reader = new FileReader();
-            reader.onload = (event) => {
-              const result = event.target?.result as string;
-              setShowAddPageDialog(false);
-              setIsAddingPageFlow(true);
-              handleStartCaptureFlow(result, `برگه جدید - ${file.name}`);
-            };
-            reader.readAsDataURL(file);
-          }
-          if (e.target) e.target.value = '';
-        }}
-      />
-      {/* مخفی: ورودی شبیه‌سازی دوربین جهت افزودن برگه جدید */}
-      <input 
-        type="file" 
-        id="add-page-camera-input"
-        accept="image/*" 
-        capture="environment"
-        className="hidden" 
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) {
-            const reader = new FileReader();
-            reader.onload = (event) => {
-              const result = event.target?.result as string;
-              setShowAddPageDialog(false);
-              setIsAddingPageFlow(true);
-              handleStartCaptureFlow(result, `برگه جدید دوربین`);
-            };
-            reader.readAsDataURL(file);
-          }
-          if (e.target) e.target.value = '';
-        }}
+        id="multi-page-input"
       />
 
       {/* نوار بالای پنل تست و مدیریت پروژه */}
@@ -1216,6 +1173,34 @@ fun PerspectiveCropView(
                         </button>
                       </div>
                     </div>
+
+                    {/* بنر حالت افزودن برگه به نوار PDF مدرک جاری */}
+                    {isAddingPageToPdf && (
+                      <div className="bg-sky-50 border border-sky-200/90 rounded-2xl p-3 mx-4 mt-2.5 flex items-center justify-between gap-2.5 shadow-xs shrink-0">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="w-8 h-8 rounded-xl bg-sky-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                            <FileText className="w-4 h-4" />
+                          </div>
+                          <div className="flex flex-col min-w-0">
+                            <span className="text-xs font-bold text-sky-950 truncate">
+                              افزودن برگه به نوار PDF مدرک «{activeDoc.title}»
+                            </span>
+                            <span className="text-[10px] text-sky-700 leading-tight mt-0.5">
+                              سندی از مدارک زیر را انتخاب کنید یا با دوربین/گالری سند جدید ایجاد کنید
+                            </span>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setIsAddingPageToPdf(false);
+                            setCurrentScreen('preview');
+                          }}
+                          className="px-2.5 py-1 text-xs font-bold text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-100 rounded-lg border border-slate-200 shrink-0 cursor-pointer transition-colors"
+                        >
+                          انصراف
+                        </button>
+                      </div>
+                    )}
 
                     {/* لیست مدارک اخیر */}
                     <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 pb-24">
@@ -1552,18 +1537,22 @@ fun PerspectiveCropView(
                         </button>
                       </div>
 
-                      {/* ردیف دکمه افزودن و برگه‌ها با استایل مدرن و سایه ملایم (چیدمان راست‌چین) */}
-                      <div className="flex items-center gap-2 overflow-x-auto pb-1 pt-0.5 scrollbar-none">
-                        {/* دکمه افزودن برگه (سمت راست برگه‌ها جهت انطباق کامل با چیدمان راست‌چین) */}
+                      {/* ردیف دکمه افزودن و برگه‌ها با ساختار کاملاً راست‌چین */}
+                      <div dir="rtl" className="flex items-center gap-2 overflow-x-auto pb-1 pt-0.5 scrollbar-none">
+                        {/* دکمه برگه جدید در سمت راست برگه اصلی */}
                         <button
-                          onClick={() => setShowAddPageDialog(true)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-b from-sky-50 to-blue-50/60 hover:from-sky-100 hover:to-blue-100 text-sky-700 border border-sky-200/80 rounded-xl text-xs font-bold whitespace-nowrap shadow-xs hover:shadow-sm active:scale-95 transition-all shrink-0 cursor-pointer"
-                          title="افزودن برگه جدید (دوربین، گالری یا اسناد اخیر)"
+                          onClick={() => {
+                            setIsAddingPageToPdf(true);
+                            setCurrentScreen('home');
+                            showToast('به صفحه اصلی منتقل شدید؛ سندی از مدارک اخیر انتخاب کنید یا سند جدید ایجاد نمایید');
+                          }}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-b from-sky-50 to-blue-50/70 hover:from-sky-100 hover:to-blue-100 text-sky-700 border border-sky-200/90 rounded-xl text-xs font-bold whitespace-nowrap shadow-xs hover:shadow-sm active:scale-95 transition-all shrink-0 cursor-pointer"
+                          title="هدایت به صفحه اصلی جهت افزودن برگه از مدارک اخیر، دوربین یا گالری"
                         >
-                          <div className="w-4 h-4 rounded-md bg-sky-200/70 text-sky-800 flex items-center justify-center">
+                          <div className="w-4 h-4 rounded-md bg-sky-200/80 text-sky-800 flex items-center justify-center">
                             <Plus className="w-3 h-3" />
                           </div>
-                          <span>افزودن برگه</span>
+                          <span>برگه جدید</span>
                         </button>
 
                         <div className="h-5 w-px bg-slate-200 shrink-0 mx-0.5" />
@@ -1914,142 +1903,6 @@ fun PerspectiveCropView(
                         </div>
                       </div>
                     </div>
-
-                    {/* دیالوگ پاپ‌آپ متریال دیزاین ۳ برای افزودن برگه جدید (دوربین، گالری، اسناد اخیر) */}
-                    {showAddPageDialog && (
-                      <div className="absolute inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-                        <div className="bg-white rounded-3xl p-5 w-full max-w-[320px] shadow-2xl border border-slate-200 text-right space-y-4 animate-in fade-in zoom-in-95 duration-150">
-                          <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-                            <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-                              <Plus className="w-4 h-4 text-sky-600" />
-                              <span>افزودن برگه جدید</span>
-                            </h3>
-                            <button 
-                              onClick={() => setShowAddPageDialog(false)}
-                              className="p-1 text-slate-400 hover:text-slate-600 rounded-lg"
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
-                          </div>
-                          <p className="text-xs text-slate-500 leading-relaxed">
-                            منبع سند جدید را انتخاب کنید. پس از انتخاب، سند به بخش برش و تراز کادر منتقل شده و با فیلتر هماهنگ به PDF اضافه می‌گردد:
-                          </p>
-
-                          <div className="space-y-2">
-                            {/* ۱. عکس‌برداری با دوربین */}
-                            <button
-                              onClick={() => {
-                                setShowAddPageDialog(false);
-                                setIsAddingPageFlow(true);
-                                const sample = createGlossyDocumentTestImage();
-                                handleStartCaptureFlow(sample, `برگه جدید دوربین - ${new Date().toLocaleDateString('fa-IR')}`);
-                                showToast('عکسبرداری برگه جدید انجام شد؛ در حال هدایت به PerspectiveCropView جهت برش');
-                              }}
-                              className="w-full flex items-center gap-3 p-3 rounded-2xl bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200/80 transition-all font-bold text-xs active:scale-[0.98]"
-                            >
-                              <div className="w-9 h-9 rounded-xl bg-sky-600 text-white flex items-center justify-center shrink-0 shadow-sm">
-                                <Camera className="w-4 h-4" />
-                              </div>
-                              <div className="text-right">
-                                <span className="block font-bold">عکس‌برداری با دوربین</span>
-                                <span className="text-[10px] text-sky-600/80 font-normal">عکس جدید با دوربین و برش خودکار</span>
-                              </div>
-                            </button>
-
-                            {/* ۲. انتخاب از گالری تصاویر */}
-                            <button
-                              onClick={() => {
-                                const el = document.getElementById('add-page-gallery-input') as HTMLInputElement;
-                                if (el) el.click();
-                              }}
-                              className="w-full flex items-center gap-3 p-3 rounded-2xl bg-teal-50 hover:bg-teal-100 text-teal-900 border border-teal-200/80 transition-all font-bold text-xs active:scale-[0.98]"
-                            >
-                              <div className="w-9 h-9 rounded-xl bg-teal-600 text-white flex items-center justify-center shrink-0 shadow-sm">
-                                <ImageIcon className="w-4 h-4" />
-                              </div>
-                              <div className="text-right">
-                                <span className="block font-bold">انتخاب از گالری</span>
-                                <span className="text-[10px] text-teal-700/80 font-normal">انتخاب تصویر از حافظه دستگاه</span>
-                              </div>
-                            </button>
-
-                            {/* ۳. انتخاب از اسناد اخیر فتوکپی‌شده */}
-                            <button
-                              onClick={() => {
-                                setShowAddPageDialog(false);
-                                setShowRecentDocsDialog(true);
-                              }}
-                              className="w-full flex items-center gap-3 p-3 rounded-2xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200/80 transition-all font-bold text-xs active:scale-[0.98]"
-                            >
-                              <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-sm">
-                                <History className="w-4 h-4" />
-                              </div>
-                              <div className="text-right">
-                                <span className="block font-bold">انتخاب از اسناد اخیر</span>
-                                <span className="text-[10px] text-amber-700/80 font-normal">افزودن یکی از مدارک قبلی به این PDF</span>
-                              </div>
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* دیالوگ انتخاب از اسناد و مدارک قبلی */}
-                    {showRecentDocsDialog && (
-                      <div className="absolute inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-                        <div className="bg-white rounded-3xl p-5 w-full max-w-[320px] shadow-2xl border border-slate-200 text-right space-y-3 animate-in fade-in zoom-in-95 duration-150">
-                          <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-                            <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-                              <History className="w-4 h-4 text-amber-600" />
-                              <span>انتخاب از اسناد اخیر</span>
-                            </h3>
-                            <button 
-                              onClick={() => setShowRecentDocsDialog(false)}
-                              className="p-1 text-slate-400 hover:text-slate-600 rounded-lg"
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
-                          </div>
-                          
-                          <div className="max-h-[260px] overflow-y-auto space-y-2 pr-1">
-                            {documents.map(doc => (
-                              <div
-                                key={doc.id}
-                                onClick={async () => {
-                                  setShowRecentDocsDialog(false);
-                                  const docImg = doc.imageSrc || createGlossyDocumentTestImage();
-                                  let filtered = docImg;
-                                  try {
-                                    filtered = await processDocumentImage(docImg, selectedFilter);
-                                  } catch (e) {
-                                    console.error(e);
-                                  }
-                                  setAdditionalPages(prev => {
-                                    const next = [...prev, filtered];
-                                    setSelectedPageIndex(next.length);
-                                    return next;
-                                  });
-                                  showToast(`سند «${doc.title}» به عنوان برگه جدید به PDF اضافه شد`);
-                                }}
-                                className="p-2.5 rounded-xl border border-slate-200 hover:border-sky-400 hover:bg-sky-50/50 cursor-pointer flex items-center gap-2.5 transition-all text-right"
-                              >
-                                <div className="w-10 h-12 bg-slate-100 rounded-lg border border-slate-200 overflow-hidden shrink-0 flex items-center justify-center">
-                                  {doc.imageSrc ? (
-                                    <img src={doc.imageSrc} alt="" className="w-full h-full object-cover" />
-                                  ) : (
-                                    <FileText className="w-5 h-5 text-slate-400" />
-                                  )}
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                  <h4 className="font-bold text-xs text-slate-900 truncate">{doc.title}</h4>
-                                  <p className="text-[10px] text-slate-500 mt-0.5">{doc.datePersian} • {getFilterLabel(doc.filter)}</p>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    )}
                   </div>
                 )}
               </div>
