@@ -119,7 +119,7 @@ fun PreviewScreen(
                 DocStorageManager.loadBitmapFromUri(context, uri)
             }
             if (loaded.isNotEmpty()) {
-                additionalPages = additionalPages + loaded
+                onAdditionalPagesChange(additionalPages + loaded)
                 Toast.makeText(context, "${loaded.size} برگه جدید به سند اضافه شد", Toast.LENGTH_SHORT).show()
             }
         }
