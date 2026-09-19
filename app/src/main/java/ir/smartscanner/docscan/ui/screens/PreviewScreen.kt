@@ -57,6 +57,14 @@ import ir.smartscanner.docscan.util.DocFilterEngine
 import ir.smartscanner.docscan.util.DocStorageManager
 import kotlinx.coroutines.launch
 
+// تعریف ساختار نگه‌داری اطلاعات هر برگه (بیت‌مپ خام، فیلتر و بیت‌مپ پردازش‌شده)
+data class PageData(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val rawBitmap: Bitmap,
+    val filter: ScanFilter = ScanFilter.PHOTOCOPY,
+    val processedBitmap: Bitmap? = null
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PreviewScreen(
@@ -70,14 +78,6 @@ fun PreviewScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
-
-    // تعریف ساختار نگه‌داری اطلاعات هر برگه (بیت‌مپ خام، فیلتر و بیت‌مپ پردازش‌شده)
-    data class PageData(
-        val id: String = java.util.UUID.randomUUID().toString(),
-        val rawBitmap: Bitmap,
-        val filter: ScanFilter = ScanFilter.PHOTOCOPY,
-        val processedBitmap: Bitmap? = null
-    )
 
     // عنوان مدرک با امکان ویرایش
     var docTitle by remember {
@@ -201,10 +201,8 @@ fun PreviewScreen(
                 isCropModeOpen = false
             }
         )
-        return
-    }
-
-    Scaffold(
+    } else {
+        Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             Column(modifier = Modifier.fillMaxWidth()) {
@@ -824,6 +822,7 @@ fun PreviewScreen(
                 }
             }
         }
+    }
     }
 
     // دیالوگ تغییر نام مدرک
