@@ -193,12 +193,8 @@ fun SmartScannerApp() {
                             val bmp = selectedDoc.bitmap
                                 ?: (selectedDoc.filePath?.let { DocStorageManager.loadSampledBitmap(it, 1600, 2200) })
                                 ?: DocFilterEngine.createSampleDocBitmap(selectedDoc.title)
-                            currentPdfAdditionalPages = currentPdfAdditionalPages + bmp
-                            isAddingPageMode = false
-                            Toast.makeText(context, "سند «${selectedDoc.title}» به نوار پی‌دی‌اف اضافه شد", Toast.LENGTH_SHORT).show()
-                            navController.navigate(Screen.Preview.createRoute(activePreviewDocId!!)) {
-                                popUpTo(Screen.Home.route) { inclusive = false }
-                            }
+                            // هدایت بلادرنگ به صفحه تنظیم گوشه‌ها و کادر به جای افزودن مستقیم و خام
+                            openCropScreenForNewCapture(bmp, selectedDoc.title)
                         }
                     } else {
                         currentPdfAdditionalPages = emptyList()
@@ -236,10 +232,12 @@ fun SmartScannerApp() {
                     initialBitmap = rawBitmap,
                     onConfirmCrop = { processedBitmap ->
                         if (isAddingPageMode && activePreviewDocId != null) {
-                            currentPdfAdditionalPages = currentPdfAdditionalPages + processedBitmap
+                            // اعمال فیلتر هوشمند فتوکپی استودیویی بر روی برگه جدید برش‌خورده به جای ارسال خام
+                            val filteredBitmap = DocFilterEngine.applyFilter(processedBitmap, ScanFilter.PHOTOCOPY)
+                            currentPdfAdditionalPages = currentPdfAdditionalPages + filteredBitmap
                             isAddingPageMode = false
                             capturedRawBitmap = null
-                            Toast.makeText(context, "برگه جدید با موفقیت به نوار پی‌دی‌اف اضافه شد", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "برگه جدید تنظیم کادر شد و با فیلتر فتوکپی استودیویی به سند اضافه گردید", Toast.LENGTH_SHORT).show()
                             navController.navigate(Screen.Preview.createRoute(activePreviewDocId!!)) {
                                 popUpTo(Screen.Crop.route) { inclusive = true }
                             }

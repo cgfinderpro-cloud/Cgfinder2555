@@ -71,8 +71,13 @@ fun PreviewScreen(
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    // فیلتر انتخابی
-    var selectedFilter by remember { mutableStateOf(document?.filter ?: ScanFilter.PHOTOCOPY) }
+    // تعریف ساختار نگه‌داری اطلاعات هر برگه (بیت‌مپ خام، فیلتر و بیت‌مپ پردازش‌شده)
+    data class PageData(
+        val id: String = java.util.UUID.randomUUID().toString(),
+        val rawBitmap: Bitmap,
+        val filter: ScanFilter = ScanFilter.PHOTOCOPY,
+        val processedBitmap: Bitmap? = null
+    )
 
     // عنوان مدرک با امکان ویرایش
     var docTitle by remember {
@@ -83,66 +88,114 @@ fun PreviewScreen(
     }
     var showRenameDialog by remember { mutableStateOf(false) }
 
-    // بیت‌مپ خام منبع: یا از تصویر فایل/حافظه یا ساخت نمونه
+    // بیت‌مپ خام منبع برگه اصلی: یا از تصویر فایل/حافظه یا ساخت نمونه
     val initialBitmap = remember(document?.id) {
         document?.bitmap
             ?: (document?.filePath?.let { DocStorageManager.loadSampledBitmap(it, 1600, 2200) })
             ?: DocFilterEngine.createSampleDocBitmap(docTitle)
     }
 
-    // بیت‌مپ فعال جاری (قبل از فیلتر، پس از اعمال برش‌های پرسپکتیو)
-    var currentRawBitmap by remember(initialBitmap) { mutableStateOf(initialBitmap) }
+    // فهرست تمام برگه‌های سند شامل برگه اصلی و برگه‌های افزوده‌شده
+    var pages by remember(initialBitmap) {
+        mutableStateOf(
+            listOf(
+                PageData(
+                    rawBitmap = initialBitmap,
+                    filter = document?.filter ?: ScanFilter.PHOTOCOPY,
+                    processedBitmap = null
+                )
+            )
+        )
+    }
 
-    // بیت‌مپ نهایی فیلتر شده (فتوکپی، سیاه و سفید، رنگی شفاف یا اصلی)
-    var processedBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var isProcessing by remember { mutableStateOf(false) }
-
-    // برگه‌های اضافی اضافه شده به سند برای تبدیل چند برگه به یک PDF واحد
+    // ایندکس برگه انتخاب‌شده جاری در پیش‌نمایش
     var selectedPageIndex by remember { mutableIntStateOf(0) }
+    var isProcessing by remember { mutableStateOf(false) }
     var isGeneratingPdf by remember { mutableStateOf(false) }
 
     // وضعیت‌های زوم دو انگشتی و جابه‌جایی تعاملی برای سند اسکن‌شده
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
 
-    val allPages = remember(processedBitmap, currentRawBitmap, additionalPages) {
-        val firstPage = processedBitmap ?: currentRawBitmap
-        listOf(firstPage) + additionalPages
-    }
-
-    // انتخابی چند تصویر از گالری جهت افزودن برگه‌های جدید به PDF
-    val imagePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetMultipleContents()
-    ) { uris ->
-        if (uris.isNotEmpty()) {
-            val loaded = uris.mapNotNull { uri ->
-                DocStorageManager.loadBitmapFromUri(context, uri)
-            }
-            if (loaded.isNotEmpty()) {
-                onAdditionalPagesChange(additionalPages + loaded)
-                Toast.makeText(context, "${loaded.size} برگه جدید به سند اضافه شد", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
     // وضعیت فعال بودن حالت برش ۴ گوشه و پرسپکتیو
     var isCropModeOpen by remember { mutableStateOf(false) }
 
-    // اعمال فیلتر هوشمند هر زمان تصویر پایه یا فیلتر تغییر کند
-    LaunchedEffect(currentRawBitmap, selectedFilter) {
-        isProcessing = true
-        val filtered = DocFilterEngine.applyFilter(currentRawBitmap, selectedFilter)
-        processedBitmap = filtered
-        isProcessing = false
+    // هماهنگ‌سازی برگه‌های اضافی جدید وارد شده از مسیرهای بیرونی (با اطمینان از فیلترگذاری کامل)
+    LaunchedEffect(additionalPages) {
+        val currentAdditionalCount = (pages.size - 1).coerceAtLeast(0)
+        if (additionalPages.size > currentAdditionalCount) {
+            val newItems = additionalPages.drop(currentAdditionalCount).map { bmp ->
+                val filtered = DocFilterEngine.applyFilter(bmp, ScanFilter.PHOTOCOPY)
+                PageData(
+                    rawBitmap = bmp,
+                    filter = ScanFilter.PHOTOCOPY,
+                    processedBitmap = filtered
+                )
+            }
+            pages = pages + newItems
+            selectedPageIndex = pages.size - 1
+        }
     }
 
-    // در صورت باز بودن حالت برش، کامپوننت ۴ گوشه نمایش داده می‌شود
+    // پردازش اولیه برگه اول در بدو ورود در صورت نیاز
+    LaunchedEffect(initialBitmap) {
+        if (pages.isNotEmpty() && pages[0].processedBitmap == null) {
+            isProcessing = true
+            val firstFilter = pages[0].filter
+            val filtered = DocFilterEngine.applyFilter(pages[0].rawBitmap, firstFilter)
+            val updated = pages.toMutableList()
+            updated[0] = updated[0].copy(processedBitmap = filtered)
+            pages = updated
+            isProcessing = false
+        }
+    }
+
+    // برگه فعال و جاری در پیش‌نمایش
+    val activeIndex = selectedPageIndex.coerceIn(0, (pages.size - 1).coerceAtLeast(0))
+    val activePage = pages.getOrElse(activeIndex) { pages[0] }
+    val activeFilter = activePage.filter
+    val activeDisplayBitmap = activePage.processedBitmap ?: activePage.rawBitmap
+    val allPagesBitmaps = remember(pages) {
+        pages.map { it.processedBitmap ?: it.rawBitmap }
+    }
+
+    // اعمال فیلتر دلخواه روی برگه انتخاب‌شده فعلی
+    fun applyFilterToActive(filter: ScanFilter) {
+        if (activePage.filter == filter && activePage.processedBitmap != null) return
+        coroutineScope.launch {
+            isProcessing = true
+            val targetIdx = activeIndex
+            val targetPage = pages.getOrElse(targetIdx) { pages[0] }
+            val newFiltered = DocFilterEngine.applyFilter(targetPage.rawBitmap, filter)
+            val updated = pages.toMutableList()
+            updated[targetIdx] = targetPage.copy(filter = filter, processedBitmap = newFiltered)
+            pages = updated
+            onAdditionalPagesChange(updated.drop(1).map { it.processedBitmap ?: it.rawBitmap })
+            isProcessing = false
+        }
+    }
+
+    // در صورت باز بودن حالت برش، کامپوننت ۴ گوشه برای برگه انتخاب‌شده نمایش داده می‌شود
     if (isCropModeOpen) {
         PerspectiveCropView(
-            initialBitmap = currentRawBitmap,
+            initialBitmap = activePage.rawBitmap,
             onConfirmCrop = { cropped ->
-                currentRawBitmap = cropped
-                isCropModeOpen = false
+                coroutineScope.launch {
+                    isProcessing = true
+                    val targetIdx = activeIndex
+                    val targetPage = pages.getOrElse(targetIdx) { pages[0] }
+                    val newFiltered = DocFilterEngine.applyFilter(cropped, targetPage.filter)
+                    val updated = pages.toMutableList()
+                    updated[targetIdx] = targetPage.copy(
+                        rawBitmap = cropped,
+                        processedBitmap = newFiltered
+                    )
+                    pages = updated
+                    onAdditionalPagesChange(updated.drop(1).map { it.processedBitmap ?: it.rawBitmap })
+                    isProcessing = false
+                    isCropModeOpen = false
+                    Toast.makeText(context, "کادر برگه ${targetIdx + 1} تنظیم شد و فیلتر ${targetPage.filter.titleFa} اعمال گردید", Toast.LENGTH_SHORT).show()
+                }
             },
             onCancel = {
                 isCropModeOpen = false
@@ -190,11 +243,10 @@ fun PreviewScreen(
                         // دکمه اشتراک‌گذاری
                         IconButton(
                             onClick = {
-                                val bmp = processedBitmap ?: currentRawBitmap
                                 coroutineScope.launch {
                                     DocFilterEngine.shareBitmap(
                                         context = context,
-                                        bitmap = bmp,
+                                        bitmap = activeDisplayBitmap,
                                         title = docTitle
                                     )
                                 }
@@ -210,22 +262,21 @@ fun PreviewScreen(
                         // دکمه ذخیره در حافظه محلی و ساخت PDF
                         Button(
                             onClick = {
-                                val bmp = processedBitmap ?: currentRawBitmap
                                 coroutineScope.launch {
                                     DocStorageManager.saveDocument(
                                         context = context,
                                         title = docTitle,
-                                        filter = selectedFilter,
-                                        bitmap = bmp
+                                        filter = pages[0].filter,
+                                        bitmap = pages[0].processedBitmap ?: pages[0].rawBitmap
                                     )
                                     val pdfFile = DocStorageManager.createMultiPagePdf(
                                         context = context,
-                                        pages = allPages,
+                                        pages = allPagesBitmaps,
                                         title = docTitle
                                     )
                                     Toast.makeText(
                                         context,
-                                        "مدرک «$docTitle» و فایل PDF (${allPages.size} برگه) ذخیره شد",
+                                        "مدرک «$docTitle» و فایل PDF (${allPagesBitmaps.size} برگه) ذخیره شد",
                                         Toast.LENGTH_SHORT
                                     ).show()
                                     onSaveSuccess()
@@ -303,7 +354,7 @@ fun PreviewScreen(
                                         fontSize = 13.sp
                                     )
                                     Text(
-                                        text = "${allPages.size} برگه انتخاب‌شده",
+                                        text = "${allPagesBitmaps.size} برگه انتخاب‌شده",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = Color(0xFF64748B),
                                         fontSize = 10.sp
@@ -319,12 +370,12 @@ fun PreviewScreen(
                                         try {
                                             val pdfFile = DocStorageManager.createMultiPagePdf(
                                                 context = context,
-                                                pages = allPages,
+                                                pages = allPagesBitmaps,
                                                 title = docTitle
                                             )
                                             Toast.makeText(
                                                 context,
-                                                "فایل PDF با ${allPages.size} برگه با موفقیت تولید شد",
+                                                "فایل PDF با ${allPagesBitmaps.size} برگه با موفقیت تولید شد",
                                                 Toast.LENGTH_LONG
                                             ).show()
                                             DocStorageManager.sharePdfFile(context, pdfFile, docTitle)
@@ -371,7 +422,7 @@ fun PreviewScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             // لیست برگه‌ها (ابتدا برگه ۱ اصلی در سمت راست، سپس برگه‌های بعدی)
-                            itemsIndexed(allPages) { index, _ ->
+                            itemsIndexed(pages) { index, _ ->
                                 val isSelected = selectedPageIndex == index
                                 Surface(
                                     shape = RoundedCornerShape(10.dp),
@@ -403,12 +454,13 @@ fun PreviewScreen(
                                         if (index > 0) {
                                             IconButton(
                                                 onClick = {
-                                                    val updated = additionalPages.toMutableList().also {
-                                                        it.removeAt(index - 1)
+                                                    val updated = pages.toMutableList().also {
+                                                        it.removeAt(index)
                                                     }
-                                                    onAdditionalPagesChange(updated)
-                                                    if (selectedPageIndex >= allPages.size - 1) {
-                                                        selectedPageIndex = 0
+                                                    pages = updated
+                                                    onAdditionalPagesChange(updated.drop(1).map { it.processedBitmap ?: it.rawBitmap })
+                                                    if (selectedPageIndex >= pages.size) {
+                                                        selectedPageIndex = (pages.size - 1).coerceAtLeast(0)
                                                     }
                                                 },
                                                 modifier = Modifier.size(20.dp)
@@ -526,33 +578,33 @@ fun PreviewScreen(
                         FilterButton(
                             title = ScanFilter.PHOTOCOPY.titleFa,
                             icon = Icons.Default.Print,
-                            isSelected = selectedFilter == ScanFilter.PHOTOCOPY,
+                            isSelected = activeFilter == ScanFilter.PHOTOCOPY,
                             modifier = Modifier.weight(1f),
-                            onClick = { selectedFilter = ScanFilter.PHOTOCOPY }
+                            onClick = { applyFilterToActive(ScanFilter.PHOTOCOPY) }
                         )
 
                         FilterButton(
                             title = ScanFilter.BLACK_AND_WHITE.titleFa,
                             icon = Icons.Default.Contrast,
-                            isSelected = selectedFilter == ScanFilter.BLACK_AND_WHITE,
+                            isSelected = activeFilter == ScanFilter.BLACK_AND_WHITE,
                             modifier = Modifier.weight(1f),
-                            onClick = { selectedFilter = ScanFilter.BLACK_AND_WHITE }
+                            onClick = { applyFilterToActive(ScanFilter.BLACK_AND_WHITE) }
                         )
 
                         FilterButton(
                             title = ScanFilter.CLEAR_COLOR.titleFa,
                             icon = Icons.Default.AutoFixHigh,
-                            isSelected = selectedFilter == ScanFilter.CLEAR_COLOR,
+                            isSelected = activeFilter == ScanFilter.CLEAR_COLOR,
                             modifier = Modifier.weight(1f),
-                            onClick = { selectedFilter = ScanFilter.CLEAR_COLOR }
+                            onClick = { applyFilterToActive(ScanFilter.CLEAR_COLOR) }
                         )
 
                         FilterButton(
                             title = ScanFilter.ORIGINAL.titleFa,
                             icon = Icons.Default.Image,
-                            isSelected = selectedFilter == ScanFilter.ORIGINAL,
+                            isSelected = activeFilter == ScanFilter.ORIGINAL,
                             modifier = Modifier.weight(1f),
-                            onClick = { selectedFilter = ScanFilter.ORIGINAL }
+                            onClick = { applyFilterToActive(ScanFilter.ORIGINAL) }
                         )
                     }
 
@@ -563,7 +615,7 @@ fun PreviewScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = selectedFilter.descriptionFa,
+                            text = activeFilter.descriptionFa,
                             style = MaterialTheme.typography.bodySmall,
                             color = PrimaryBlue,
                             fontWeight = FontWeight.Normal
@@ -694,7 +746,7 @@ fun PreviewScreen(
                     .padding(8.dp)
             ) {
                 Text(
-                    text = selectedFilter.titleFa,
+                    text = activeFilter.titleFa,
                     style = MaterialTheme.typography.labelSmall,
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
@@ -733,9 +785,8 @@ fun PreviewScreen(
                             .padding(10.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        val displayBitmap = if (selectedPageIndex in allPages.indices) allPages[selectedPageIndex] else (processedBitmap ?: currentRawBitmap)
                         Image(
-                            bitmap = displayBitmap.asImageBitmap(),
+                            bitmap = activeDisplayBitmap.asImageBitmap(),
                             contentDescription = docTitle,
                             modifier = Modifier
                                 .wrapContentSize()

@@ -125,11 +125,8 @@ export default function App() {
     if (doc) {
       if (isAddingPageToPdf) {
         const newPageImg = doc.imageSrc || createGlossyDocumentTestImage();
-        setAdditionalPages(prev => [...prev, newPageImg]);
-        setSelectedPageIndex(additionalPages.length + 1);
-        setIsAddingPageToPdf(false);
-        setCurrentScreen('preview');
-        showToast(`سند «${doc.title}» به نوار پی‌دی‌اف اضافه شد`);
+        handleStartCaptureFlow(newPageImg, doc.title);
+        showToast(`سند «${doc.title}» بارگذاری شد؛ لطفاً گوشه‌ها را تنظیم نمایید`);
         return;
       }
       setActiveDocId(id);
@@ -360,23 +357,17 @@ export default function App() {
   const handleAddMultiplePages = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files && files.length > 0) {
-      const fileList = Array.from(files);
-      const readers = fileList.map((file: File) => {
-        return new Promise<string>((resolve) => {
-          const reader = new FileReader();
-          reader.onload = (evt) => {
-            resolve((evt.target?.result as string) || '');
-          };
-          reader.readAsDataURL(file);
-        });
-      });
-      Promise.all(readers).then(newImages => {
-        const validImages = newImages.filter(img => Boolean(img));
-        if (validImages.length > 0) {
-          setAdditionalPages(prev => [...prev, ...validImages]);
-          showToast(`${validImages.length} برگه جدید به سند اضافه شد`);
+      const file = files[0];
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        const imgResult = (evt.target?.result as string) || '';
+        if (imgResult) {
+          setIsAddingPageToPdf(true);
+          handleStartCaptureFlow(imgResult, file.name.replace(/\.[^/.]+$/, "") || 'برگه جدید');
+          showToast('تصویر برگه جدید دریافت شد؛ لطفاً گوشه‌ها را تنظیم کنید');
         }
-      });
+      };
+      reader.readAsDataURL(file);
     }
     if (e.target) e.target.value = '';
   };
@@ -666,9 +657,7 @@ NavHost(navController = navController, startDestination = Screen.Home.route) {
                     val selectedDoc = documentList.find { it.id == docId }
                     if (selectedDoc != null) {
                         val bmp = selectedDoc.bitmap ?: DocFilterEngine.createSampleDocBitmap(selectedDoc.title)
-                        currentPdfAdditionalPages = currentPdfAdditionalPages + bmp
-                        isAddingPageMode = false
-                        navController.navigate(Screen.Preview.createRoute(activePreviewDocId!!))
+                        openCropScreenForNewCapture(bmp, selectedDoc.title)
                     }
                 } else {
                     currentPdfAdditionalPages = emptyList()
@@ -694,7 +683,8 @@ NavHost(navController = navController, startDestination = Screen.Home.route) {
                 initialBitmap = rawBitmap,
                 onConfirmCrop = { processedBitmap ->
                     if (isAddingPageMode && activePreviewDocId != null) {
-                        currentPdfAdditionalPages = currentPdfAdditionalPages + processedBitmap
+                        val filteredPage = DocFilterEngine.applyFilter(processedBitmap, ScanFilter.PHOTOCOPY)
+                        currentPdfAdditionalPages = currentPdfAdditionalPages + filteredPage
                         isAddingPageMode = false
                         navController.navigate(Screen.Preview.createRoute(activePreviewDocId!!))
                     } else {
@@ -1726,7 +1716,7 @@ fun PerspectiveCropView(
                                 src={additionalPages[selectedPageIndex - 1]} 
                                 alt={`برگه ${selectedPageIndex + 1}`} 
                                 className="max-h-[420px] max-w-full object-contain rounded-md shadow-xs"
-                                style={{ backgroundColor: '#FFFFFF' }}
+                                style={getFilterStyle(selectedFilter)}
                               />
                             </div>
                           ) : customImage || activeDoc.imageSrc ? (
