@@ -365,50 +365,12 @@ fun PreviewScreen(
                             }
                         }
 
-                        // ردیف اسکرول برگه‌ها و دکمه افزودن برگه با سایه و طراحی ارگونومیک (چیدمان راست‌چین)
+                        // ردیف اسکرول برگه‌ها و دکمه افزودن برگه با سایه و طراحی ارگونومیک (چیدمان راست‌چین: برگه اصلی در سمت راست و دکمه افزودن برگه در سمت چپ)
                         LazyRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // دکمه برگه جدید (سمت راست برگه اصلی در ساختار راست‌چین)
-                            item {
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = Color(0xFFF0F9FF),
-                                    border = BorderStroke(1.dp, Color(0xFFBAE6FD)),
-                                    shadowElevation = 1.dp,
-                                    modifier = Modifier.clickable { onAddPageFromHome() }
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(5.dp)
-                                    ) {
-                                        Surface(
-                                            color = Color(0xFFBAE6FD),
-                                            shape = RoundedCornerShape(6.dp),
-                                            modifier = Modifier.size(18.dp)
-                                        ) {
-                                            Box(contentAlignment = Alignment.Center) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Add,
-                                                    contentDescription = "برگه جدید",
-                                                    tint = PrimaryBlue,
-                                                    modifier = Modifier.size(14.dp)
-                                                )
-                                            }
-                                        }
-                                        Text(
-                                            text = "برگه جدید",
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = PrimaryBlue
-                                        )
-                                    }
-                                }
-                            }
-
-                            // لیست برگه‌ها
+                            // لیست برگه‌ها (ابتدا برگه ۱ اصلی در سمت راست، سپس برگه‌های بعدی)
                             itemsIndexed(allPages) { index, _ ->
                                 val isSelected = selectedPageIndex == index
                                 Surface(
@@ -459,6 +421,44 @@ fun PreviewScreen(
                                                 )
                                             }
                                         }
+                                    }
+                                }
+                            }
+
+                            // دکمه افزودن برگه در سمت چپ برگه‌ها در چیدمان راست‌چین
+                            item {
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = Color(0xFFF0F9FF),
+                                    border = BorderStroke(1.dp, Color(0xFFBAE6FD)),
+                                    shadowElevation = 1.dp,
+                                    modifier = Modifier.clickable { onAddPageFromHome() }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                    ) {
+                                        Surface(
+                                            color = Color(0xFFBAE6FD),
+                                            shape = RoundedCornerShape(6.dp),
+                                            modifier = Modifier.size(18.dp)
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Add,
+                                                    contentDescription = "افزودن برگه",
+                                                    tint = PrimaryBlue,
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                            }
+                                        }
+                                        Text(
+                                            text = "افزودن برگه",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = PrimaryBlue
+                                        )
                                     }
                                 }
                             }

@@ -767,7 +767,7 @@ fun HomeScreen(
     },
     'PreviewScreen.kt': {
       lang: 'kotlin',
-      desc: 'صفحه پیش‌نمایش و نوار تبدیل چندبرگه به PDF واحد با چینش راست‌چین (RTL) و دکمه «برگه جدید» در سمت راست برگه اصلی',
+      desc: 'صفحه پیش‌نمایش و نوار تبدیل چندبرگه به PDF واحد با چینش راست‌چین (RTL)، برگه ۱ اصلی در سمت راست و دکمه «افزودن برگه» در سمت چپ',
       code: `@Composable
 fun PreviewScreen(
     document: DocumentItem?,
@@ -778,31 +778,31 @@ fun PreviewScreen(
     onSaveSuccess: () -> Unit = {}
 ) {
     // نوار تبدیل به PDF واحد در بالای پیش‌نمایش
-    // چیدمان راست‌چین (RTL) به گونه‌ای که دکمه «برگه جدید» در سمت راست «برگه ۱ (اصلی)» قرار می‌گیرد:
+    // چیدمان راست‌چین (RTL) به گونه‌ای که برگه اصلی در سمت راست و دکمه «افزودن برگه» در سمت چپ قرار می‌گیرد:
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // ۱. دکمه «برگه جدید» در سمت راست برگه اصلی
+            // ۱. برگه ۱ (اصلی) در سمت راست
+            item {
+                PageChip(title = "برگه ۱ (اصلی)", isSelected = selectedPageIndex == 0)
+            }
+
+            // ۲. برگه‌های بعدی اضافه‌شده
+            itemsIndexed(additionalPages) { index, pageBitmap ->
+                PageChip(title = "برگه \${index + 2}", onRemove = { /* حذف برگه */ })
+            }
+
+            // ۳. دکمه «افزودن برگه» در سمت چپ برگه‌ها
             item {
                 Button(
                     onClick = onAddPageFromHome,
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
                 ) {
                     Icon(Icons.Default.Add, contentDescription = null)
-                    Text("برگه جدید")
+                    Text("افزودن برگه")
                 }
-            }
-
-            // ۲. برگه ۱ (اصلی)
-            item {
-                PageChip(title = "برگه ۱ (اصلی)", isSelected = selectedPageIndex == 0)
-            }
-
-            // ۳. برگه‌های بعدی اضافه‌شده
-            itemsIndexed(additionalPages) { index, pageBitmap ->
-                PageChip(title = "برگه \${index + 2}", onRemove = { /* حذف برگه */ })
             }
         }
     }
@@ -1056,9 +1056,12 @@ fun PerspectiveCropView(
       <header className="border-b border-neutral-800 bg-neutral-900/90 backdrop-blur px-4 py-3 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-sky-600 flex items-center justify-center text-white shadow-lg shadow-sky-600/30">
-              <FileText className="w-5 h-5" />
-            </div>
+            <img 
+              src="/app_icon.jpg" 
+              alt="آیکون اسکنر و فتوکپی هوشمند مدارک" 
+              className="w-10 h-10 rounded-xl object-cover shadow-lg shadow-sky-600/30 border border-sky-400/20"
+              referrerPolicy="no-referrer"
+            />
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-base sm:text-lg font-bold text-white">اسکنر و فتوکپی هوشمند مدارک</h1>
@@ -1156,9 +1159,12 @@ fun PerspectiveCropView(
                     {/* اپ‌بار اصلی */}
                     <div className="bg-white px-5 py-3 border-b border-slate-100 shadow-sm flex items-center justify-between shrink-0">
                       <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-xl bg-sky-100 text-sky-700 flex items-center justify-center">
-                          <FileText className="w-5 h-5" />
-                        </div>
+                        <img 
+                          src="/app_icon.jpg" 
+                          alt="آیکون برنامه" 
+                          className="w-9 h-9 rounded-xl object-cover shadow-xs border border-sky-200"
+                          referrerPolicy="no-referrer"
+                        />
                         <div>
                           <h2 className="text-base font-bold text-slate-900 leading-tight">اسکنر مدارک</h2>
                           <p className="text-[11px] text-slate-500">فتوکپی و پردازش آفلاین</p>
@@ -1537,27 +1543,9 @@ fun PerspectiveCropView(
                         </button>
                       </div>
 
-                      {/* ردیف دکمه افزودن و برگه‌ها با ساختار کاملاً راست‌چین */}
+                      {/* ردیف دکمه افزودن و برگه‌ها با ساختار کاملاً راست‌چین: برگه اصلی در سمت راست، دکمه افزودن در سمت چپ */}
                       <div dir="rtl" className="flex items-center gap-2 overflow-x-auto pb-1 pt-0.5 scrollbar-none">
-                        {/* دکمه برگه جدید در سمت راست برگه اصلی */}
-                        <button
-                          onClick={() => {
-                            setIsAddingPageToPdf(true);
-                            setCurrentScreen('home');
-                            showToast('به صفحه اصلی منتقل شدید؛ سندی از مدارک اخیر انتخاب کنید یا سند جدید ایجاد نمایید');
-                          }}
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-b from-sky-50 to-blue-50/70 hover:from-sky-100 hover:to-blue-100 text-sky-700 border border-sky-200/90 rounded-xl text-xs font-bold whitespace-nowrap shadow-xs hover:shadow-sm active:scale-95 transition-all shrink-0 cursor-pointer"
-                          title="هدایت به صفحه اصلی جهت افزودن برگه از مدارک اخیر، دوربین یا گالری"
-                        >
-                          <div className="w-4 h-4 rounded-md bg-sky-200/80 text-sky-800 flex items-center justify-center">
-                            <Plus className="w-3 h-3" />
-                          </div>
-                          <span>برگه جدید</span>
-                        </button>
-
-                        <div className="h-5 w-px bg-slate-200 shrink-0 mx-0.5" />
-
-                        {/* برگه ۱ اصلی */}
+                        {/* برگه ۱ اصلی (در سمت راست) */}
                         <button
                           onClick={() => setSelectedPageIndex(0)}
                           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs transition-all shrink-0 cursor-pointer border ${
@@ -1607,6 +1595,24 @@ fun PerspectiveCropView(
                             </div>
                           );
                         })}
+
+                        <div className="h-5 w-px bg-slate-200 shrink-0 mx-0.5" />
+
+                        {/* دکمه افزودن برگه در سمت چپ برگه‌ها */}
+                        <button
+                          onClick={() => {
+                            setIsAddingPageToPdf(true);
+                            setCurrentScreen('home');
+                            showToast('به صفحه اصلی منتقل شدید؛ سندی از مدارک اخیر انتخاب کنید یا سند جدید ایجاد نمایید');
+                          }}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-b from-sky-50 to-blue-50/70 hover:from-sky-100 hover:to-blue-100 text-sky-700 border border-sky-200/90 rounded-xl text-xs font-bold whitespace-nowrap shadow-xs hover:shadow-sm active:scale-95 transition-all shrink-0 cursor-pointer"
+                          title="هدایت به صفحه اصلی جهت افزودن برگه از مدارک اخیر، دوربین یا گالری"
+                        >
+                          <div className="w-4 h-4 rounded-md bg-sky-200/80 text-sky-800 flex items-center justify-center">
+                            <Plus className="w-3 h-3" />
+                          </div>
+                          <span>افزودن برگه</span>
+                        </button>
                       </div>
                     </div>
 
