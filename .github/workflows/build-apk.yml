@@ -11,10 +11,25 @@ jobs:
   build:
     name: Assemble Debug APK
     runs-on: ubuntu-latest
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Clean stale Gradle and build files
+        run: |
+          rm -rf .gradle build app/build
+
+      - name: Configure Android SDK Path
+        run: |
+          if [ -d "/usr/local/lib/android/sdk" ]; then
+            echo "sdk.dir=/usr/local/lib/android/sdk" > local.properties
+          elif [ -n "$ANDROID_HOME" ]; then
+            echo "sdk.dir=$ANDROID_HOME" > local.properties
+          fi
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4

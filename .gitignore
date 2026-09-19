@@ -1,7 +1,12 @@
 node_modules/
+.gradle/
+.idea/
+local.properties
 build/
+app/build/
 dist/
 coverage/
+*.lock
 .DS_Store
 *.log
 .env*
