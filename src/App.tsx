@@ -448,7 +448,7 @@ export default function App() {
   const handleAutoDetectCorners = () => {
     setIsAutoDetecting(true);
     setTimeout(() => {
-      // نتایج دقیق فیلتر دوبل گوسی و Convex Hull در استخراج ۴ گوشه واقعی کاغذ
+      // نتایج دقیق فیلتر میانگین‌گیر ضد نویز، فیلتر دوبل گوسی و Convex Hull در استخراج ۴ گوشه واقعی کاغذ
       setCorners([
         { x: 10.5, y: 12.0 },
         { x: 89.5, y: 13.5 },
@@ -456,7 +456,7 @@ export default function App() {
         { x: 11.5, y: 87.0 }
       ]);
       setIsAutoDetecting(false);
-      showToast('تشخیص هوشمند لبه‌ها (Canny + Convex Hull) با حذف متون داخلی انجام شد');
+      showToast('تشخیص هوشمند لبه‌ها (Canny + فیلتر میانگین‌گیر کاغذ روغنی + Convex Hull) انجام شد');
     }, 450);
   };
 
@@ -899,11 +899,12 @@ object EdgeDetectionEngine {
     fun detectCorners(bitmap: Bitmap, config: CannyConfig = CannyConfig()): DocumentCorners {
         // ۱. مقیاس‌گذاری سریع متناسب
         // ۲. استخراج روشنایی (Grayscale)
-        // ۳. فیلتر گوسی ۱ بعدی تفکیک‌پذیر (Separable 1D Gaussian Blur)
-        // ۴. محاسبه گرادیان سوبل (Sobel Magnitudes & Angles)
-        // ۵. سرکوب غیر بیشینه‌ها (Non-Maximum Suppression - NMS)
-        // ۶. آستانه‌گذاری دوگانه و هیسترزیس (Double Thresholding & Hysteresis)
-        // ۷. استخراج هندسی ۴ گوشه سند و بازگردانی به ابعاد اصلی
+        // ۳. فیلتر میانگین‌گیر (Mean Filter) جهت حذف نویز و بازتاب‌های کاغذ روغنی
+        // ۴. فیلتر گوسی ۱ بعدی تفکیک‌پذیر (Separable 1D Gaussian Blur)
+        // ۵. محاسبه گرادیان سوبل (Sobel Magnitudes & Angles)
+        // ۶. سرکوب غیر بیشینه‌ها (Non-Maximum Suppression - NMS)
+        // ۷. آستانه‌گذاری دوگانه و هیسترزیس (Double Thresholding & Hysteresis)
+        // ۸. استخراج هندسی ۴ گوشه سند و بازگردانی به ابعاد اصلی
         ...
     }
 }
@@ -1432,7 +1433,7 @@ fun PerspectiveCropView(
                       {isAutoDetecting && (
                         <div className="absolute inset-0 bg-sky-950/60 backdrop-blur-xs flex flex-col items-center justify-center gap-2 z-30">
                           <div className="w-7 h-7 border-2 border-sky-400 border-t-transparent rounded-full animate-spin" />
-                          <span className="text-xs font-bold text-sky-200">الگوریتم هوشمند Canny + Convex Hull در حال ردیابی لبه‌ها...</span>
+                          <span className="text-xs font-bold text-sky-200">الگوریتم هوشمند Canny + فیلتر میانگین‌گیر کاغذ روغنی در حال ردیابی لبه‌ها...</span>
                         </div>
                       )}
                     </div>

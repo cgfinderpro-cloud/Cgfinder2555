@@ -66,7 +66,8 @@ data class CannyConfig(
     val sampleWidth: Int = 300,
     val lowThresholdRatio: Float = 0.12f,
     val highThresholdRatio: Float = 0.30f,
-    val borderMarginRatio: Float = 0.035f
+    val borderMarginRatio: Float = 0.035f,
+    val meanFilterRadius: Int = 1
 )
 
 /**
@@ -101,20 +102,27 @@ object EdgeDetectionEngine {
             val grayscale = extractGrayscale(scaledBitmap, targetW, targetH)
             scaledBitmap.recycle()
 
-            // ۳. فیلتر هموارسازی گوسی دو مرحله‌ای جهت محو کردن کامل متون ریز و برجسته‌سازی مرز کاغذ
-            val blurredPass1 = applySeparableGaussianBlur(grayscale, targetW, targetH)
+            // ۳. فیلتر میانگین‌گیر (Mean Filter) تفکیک‌پذیر پیش از فیلتر گوسی جهت حذف نویز و بازتاب‌های شدید در کاغذهای روغنی و گلاسه
+            val meanFiltered = if (config.meanFilterRadius > 0) {
+                applyMeanFilter(grayscale, targetW, targetH, config.meanFilterRadius)
+            } else {
+                grayscale
+            }
+
+            // ۴. فیلتر هموارسازی گوسی دو مرحله‌ای جهت محو کردن کامل متون ریز و برجسته‌سازی مرز کاغذ
+            val blurredPass1 = applySeparableGaussianBlur(meanFiltered, targetW, targetH)
             val blurred = applySeparableGaussianBlur(blurredPass1, targetW, targetH)
 
-            // ۴. محاسبه شیب روشنایی با عملگر سوبل (Sobel Gradient Magnitudes & Angles)
+            // ۵. محاسبه شیب روشنایی با عملگر سوبل (Sobel Gradient Magnitudes & Angles)
             val (magnitudes, angles) = computeSobelGradients(blurred, targetW, targetH)
 
-            // ۵. سرکوب غیر بیشینه‌ها (Non-Maximum Suppression - NMS) جهت نازک‌سازی خطوط لبه
+            // ۶. سرکوب غیر بیشینه‌ها (Non-Maximum Suppression - NMS) جهت نازک‌سازی خطوط لبه
             val nmsEdges = applyNonMaximumSuppression(magnitudes, angles, targetW, targetH)
 
-            // ۶. آستانه‌گذاری دوگانه و اتصال هیسترزیس (Double Thresholding & Hysteresis Tracking)
+            // ۷. آستانه‌گذاری دوگانه و اتصال هیسترزیس (Double Thresholding & Hysteresis Tracking)
             val edgeMask = applyHysteresis(nmsEdges, targetW, targetH, config)
 
-            // ۷. استخراج هندسی ۴ گوشه سند با Convex Hull و نگاشت به ابعاد واقعی تصویر
+            // ۸. استخراج هندسی ۴ گوشه سند با Convex Hull و نگاشت به ابعاد واقعی تصویر
             val detected = findDocumentQuadCorners(
                 edgeMask = edgeMask,
                 width = targetW,
@@ -144,7 +152,14 @@ object EdgeDetectionEngine {
         val gray = extractGrayscale(scaled, targetW, targetH)
         scaled.recycle()
 
-        val blurred = applySeparableGaussianBlur(gray, targetW, targetH)
+        // اعمال فیلتر میانگین‌گیر قبل از فیلتر گوسی برای جلوگیری از نویزهای سطوح روغنی
+        val meanFiltered = if (config.meanFilterRadius > 0) {
+            applyMeanFilter(gray, targetW, targetH, config.meanFilterRadius)
+        } else {
+            gray
+        }
+
+        val blurred = applySeparableGaussianBlur(meanFiltered, targetW, targetH)
         val (mag, angles) = computeSobelGradients(blurred, targetW, targetH)
         val nms = applyNonMaximumSuppression(mag, angles, targetW, targetH)
         val edgeMask = applyHysteresis(nms, targetW, targetH, config)
@@ -188,6 +203,46 @@ object EdgeDetectionEngine {
             gray[i] = 0.299f * r + 0.587f * g + 0.114f * b
         }
         return gray
+    }
+
+    /**
+     * فیلتر میانگین‌گیر تفکیک‌پذیر (Separable Mean / Box Blur Filter):
+     * اعمال پیش از فیلتر گوسی جهت یکنواخت‌سازی شدت روشنایی موضعی، حذف نویزهای فرکانس بالا
+     * و کاهش حساسیت به بازتاب‌های نوری نقطه‌ای و لکه‌ها در اسناد با کاغذ روغنی و گلاسه.
+     */
+    private fun applyMeanFilter(input: FloatArray, w: Int, h: Int, radius: Int = 1): FloatArray {
+        if (radius <= 0) return input
+        val windowSize = 2 * radius + 1
+        val invWindow = 1f / windowSize.toFloat()
+        val temp = FloatArray(w * h)
+        val result = FloatArray(w * h)
+
+        // عبور افقی میانگین‌گیر
+        for (y in 0 until h) {
+            val rowOffset = y * w
+            for (x in 0 until w) {
+                var sum = 0f
+                for (k in -radius..radius) {
+                    val px = (x + k).coerceIn(0, w - 1)
+                    sum += input[rowOffset + px]
+                }
+                temp[rowOffset + x] = sum * invWindow
+            }
+        }
+
+        // عبور عمودی میانگین‌گیر
+        for (x in 0 until w) {
+            for (y in 0 until h) {
+                var sum = 0f
+                for (k in -radius..radius) {
+                    val py = (y + k).coerceIn(0, h - 1)
+                    sum += temp[py * w + x]
+                }
+                result[y * w + x] = sum * invWindow
+            }
+        }
+
+        return result
     }
 
     /**
