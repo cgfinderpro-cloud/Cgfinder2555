@@ -28,15 +28,22 @@ import java.util.Locale
 object DocFilterEngine {
 
     /**
-     * اعمال فیلتر بر روی تصویر به صورت ناهمگام در دیسپچر IO
+     * اعمال فیلتر بر روی تصویر به صورت همگام (Synchronous)
      */
-    suspend fun applyFilter(source: Bitmap, filter: ScanFilter): Bitmap = withContext(Dispatchers.Default) {
-        when (filter) {
+    fun applyFilterSync(source: Bitmap, filter: ScanFilter): Bitmap {
+        return when (filter) {
             ScanFilter.PHOTOCOPY -> applyPhotocopy(source)
             ScanFilter.BLACK_AND_WHITE -> applyBlackAndWhite(source)
             ScanFilter.CLEAR_COLOR -> applyClearColor(source)
             ScanFilter.ORIGINAL -> source
         }
+    }
+
+    /**
+     * اعمال فیلتر بر روی تصویر به صورت ناهمگام در دیسپچر Default
+     */
+    suspend fun applyFilter(source: Bitmap, filter: ScanFilter): Bitmap = withContext(Dispatchers.Default) {
+        applyFilterSync(source, filter)
     }
 
     /**

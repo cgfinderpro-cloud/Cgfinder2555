@@ -124,12 +124,15 @@ fun PreviewScreen(
     LaunchedEffect(additionalPages) {
         val currentAdditionalCount = (pages.size - 1).coerceAtLeast(0)
         if (additionalPages.size > currentAdditionalCount) {
-            val newItems = additionalPages.drop(currentAdditionalCount).map { bmp ->
+            val newItems = mutableListOf<PageData>()
+            for (bmp in additionalPages.drop(currentAdditionalCount)) {
                 val filtered = DocFilterEngine.applyFilter(bmp, ScanFilter.PHOTOCOPY)
-                PageData(
-                    rawBitmap = bmp,
-                    filter = ScanFilter.PHOTOCOPY,
-                    processedBitmap = filtered
+                newItems.add(
+                    PageData(
+                        rawBitmap = bmp,
+                        filter = ScanFilter.PHOTOCOPY,
+                        processedBitmap = filtered
+                    )
                 )
             }
             pages = pages + newItems

@@ -233,7 +233,7 @@ fun SmartScannerApp() {
                     onConfirmCrop = { processedBitmap ->
                         if (isAddingPageMode && activePreviewDocId != null) {
                             // اعمال فیلتر هوشمند فتوکپی استودیویی بر روی برگه جدید برش‌خورده به جای ارسال خام
-                            val filteredBitmap = DocFilterEngine.applyFilter(processedBitmap, ScanFilter.PHOTOCOPY)
+                            val filteredBitmap = DocFilterEngine.applyFilterSync(processedBitmap, ScanFilter.PHOTOCOPY)
                             currentPdfAdditionalPages = currentPdfAdditionalPages + filteredBitmap
                             isAddingPageMode = false
                             capturedRawBitmap = null
