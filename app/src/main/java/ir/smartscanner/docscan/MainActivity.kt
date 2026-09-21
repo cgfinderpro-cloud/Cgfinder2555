@@ -190,11 +190,18 @@ fun SmartScannerApp() {
                     if (isAddingPageMode && activePreviewDocId != null) {
                         val selectedDoc = documentList.find { it.id == docId }
                         if (selectedDoc != null) {
+                            // از آنجا که سند از قبل ویرایش، کادربندی و ذخیره شده، مستقیماً به نوار بالای صفحه افزوده شده
+                            // و کاربر بدون معطلی و بدون نیاز به برش مجدد به صفحه پیش‌نمایش هدایت می‌شود.
                             val bmp = selectedDoc.bitmap
                                 ?: (selectedDoc.filePath?.let { DocStorageManager.loadSampledBitmap(it, 1600, 2200) })
                                 ?: DocFilterEngine.createSampleDocBitmap(selectedDoc.title)
-                            // هدایت بلادرنگ به صفحه تنظیم گوشه‌ها و کادر به جای افزودن مستقیم و خام
-                            openCropScreenForNewCapture(bmp, selectedDoc.title)
+                            val readyBitmap = DocFilterEngine.applyFilterSync(bmp, selectedDoc.filter)
+                            currentPdfAdditionalPages = currentPdfAdditionalPages + readyBitmap
+                            isAddingPageMode = false
+                            Toast.makeText(context, "سند «${selectedDoc.title}» مستقیماً به نوار برگه‌ها افزوده شد", Toast.LENGTH_SHORT).show()
+                            navController.navigate(Screen.Preview.createRoute(activePreviewDocId!!)) {
+                                popUpTo(Screen.Home.route) { inclusive = false }
+                            }
                         }
                     } else {
                         currentPdfAdditionalPages = emptyList()

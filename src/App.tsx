@@ -124,9 +124,14 @@ export default function App() {
     const doc = documents.find(d => d.id === id);
     if (doc) {
       if (isAddingPageToPdf) {
-        const newPageImg = doc.imageSrc || createGlossyDocumentTestImage();
-        handleStartCaptureFlow(newPageImg, doc.title);
-        showToast(`سند «${doc.title}» بارگذاری شد؛ لطفاً گوشه‌ها را تنظیم نمایید`);
+        // چون این سند از قبل ویرایش، کادربندی و آماده شده است،
+        // مستقیماً به نوار بالای صفحه به‌عنوان برگه جدید اضافه شده و کاربر بلافاصله به صفحه پیش‌نمایش می‌رود.
+        const pageImg = doc.imageSrc || createGlossyDocumentTestImage();
+        setAdditionalPages(prev => [...prev, pageImg]);
+        setSelectedPageIndex(additionalPages.length + 1);
+        setIsAddingPageToPdf(false);
+        setCurrentScreen('preview');
+        showToast(`سند «${doc.title}» مستقیماً به نوار برگه‌ها افزوده شد و به پیش‌نمایش منتقل شدید`);
         return;
       }
       setActiveDocId(id);
@@ -641,7 +646,7 @@ sealed class Screen(val route: String) {
     },
     'MainActivity.kt': {
       lang: 'kotlin',
-      desc: 'مدیریت جریان نویگیشن: هدایت بین صفحه اصلی، برش پرسپکتیو و پیش‌نمایش، همراه با مدیریت نوار چندبرگه‌ای PDF و هدایت به صفحه اصلی برای افزودن برگه',
+      desc: 'مدیریت جریان نویگیشن: هدایت بین صفحه اصلی، برش پرسپکتیو و پیش‌نمایش؛ در حالت افزودن برگه، مدارک اخیر مستقیماً به نوار برگه‌ها افزوده شده و کاربر فوراً به پیش‌نمایش هدایت می‌شود',
       code: `// متغیرهای وضعیت نوار چندبرگه‌ای پی‌دی‌اف و افزودن برگه از صفحه اصلی
 var currentPdfAdditionalPages by remember { mutableStateOf<List<Bitmap>>(emptyList()) }
 var isAddingPageMode by remember { mutableStateOf(false) }
@@ -656,8 +661,14 @@ NavHost(navController = navController, startDestination = Screen.Home.route) {
                 if (isAddingPageMode && activePreviewDocId != null) {
                     val selectedDoc = documentList.find { it.id == docId }
                     if (selectedDoc != null) {
+                        // چون سند از قبل آماده و پردازش‌شده است، مستقیماً به نوار اضافه شده و فوراً به پیش‌نمایش می‌رویم
                         val bmp = selectedDoc.bitmap ?: DocFilterEngine.createSampleDocBitmap(selectedDoc.title)
-                        openCropScreenForNewCapture(bmp, selectedDoc.title)
+                        val readyBitmap = DocFilterEngine.applyFilterSync(bmp, selectedDoc.filter)
+                        currentPdfAdditionalPages = currentPdfAdditionalPages + readyBitmap
+                        isAddingPageMode = false
+                        navController.navigate(Screen.Preview.createRoute(activePreviewDocId!!)) {
+                            popUpTo(Screen.Home.route) { inclusive = false }
+                        }
                     }
                 } else {
                     currentPdfAdditionalPages = emptyList()
@@ -757,7 +768,7 @@ fun HomeScreen(
     },
     'PreviewScreen.kt': {
       lang: 'kotlin',
-      desc: 'صفحه پیش‌نمایش و نوار تبدیل چندبرگه به PDF واحد با چینش راست‌چین (RTL)، برگه ۱ اصلی در سمت راست و دکمه «افزودن برگه» در سمت چپ',
+      desc: 'صفحه پیش‌نمایش با طراحی ساده و استاندارد (حذف دکمه تکراری ذخیره از هدر بالا و تجمیع آن در دکمه واحد «ذخیره و دریافت PDF» در نوار پایین)',
       code: `@Composable
 fun PreviewScreen(
     document: DocumentItem?,
@@ -767,33 +778,41 @@ fun PreviewScreen(
     onBack: () -> Unit,
     onSaveSuccess: () -> Unit = {}
 ) {
-    // نوار تبدیل به PDF واحد در بالای پیش‌نمایش
-    // چیدمان راست‌چین (RTL) به گونه‌ای که برگه اصلی در سمت راست و دکمه «افزودن برگه» در سمت چپ قرار می‌گیرد:
-    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-        LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // ۱. برگه ۱ (اصلی) در سمت راست
-            item {
-                PageChip(title = "برگه ۱ (اصلی)", isSelected = selectedPageIndex == 0)
-            }
-
-            // ۲. برگه‌های بعدی اضافه‌شده
-            itemsIndexed(additionalPages) { index, pageBitmap ->
-                PageChip(title = "برگه \${index + 2}", onRemove = { /* حذف برگه */ })
-            }
-
-            // ۳. دکمه «افزودن برگه» در سمت چپ برگه‌ها
-            item {
-                Button(
-                    onClick = onAddPageFromHome,
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = null)
-                    Text("افزودن برگه")
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(document?.title ?: "پیش‌نمایش سند", fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Default.ArrowForward, contentDescription = "بازگشت")
+                    }
+                },
+                actions = {
+                    // تنها دکمه اشتراک‌گذاری سریع در هدر بالا باقی مانده تا کاربر دچار سردرگمی نشود
+                    IconButton(onClick = { /* اشتراک تصویر */ }) {
+                        Icon(Icons.Default.Share, contentDescription = "اشتراک‌گذاری")
+                    }
                 }
-            }
+            )
+        }
+    ) { padding ->
+        // نوار ارگونومیک با دکمه واحد «ذخیره و دریافت PDF» که هم ذخیره در دیتابیس محلی
+        // و هم ساخت و خروجی نهایی PDF واحد را به صورت یکپارچه انجام می‌دهد.
+        Button(
+            onClick = {
+                // ذخیره سند در حافظه و ساخت PDF چندبرگه‌ای در یک اکشن واحد
+                coroutineScope.launch {
+                    DocStorageManager.saveDocument(...)
+                    val pdfFile = DocStorageManager.createMultiPagePdf(...)
+                    DocStorageManager.sharePdfFile(context, pdfFile, docTitle)
+                    onSaveSuccess()
+                }
+            },
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669))
+        ) {
+            Icon(Icons.Default.Save, contentDescription = null)
+            Spacer(modifier = Modifier.width(5.dp))
+            Text("ذخیره و دریافت PDF", fontWeight = FontWeight.Bold)
         }
     }
 }`
@@ -1489,16 +1508,9 @@ fun PerspectiveCropView(
                         <button
                           onClick={handleShare}
                           className="p-2 hover:bg-sky-50 text-sky-600 rounded-xl"
-                          title="اشتراک‌گذاری"
+                          title="اشتراک‌گذاری سریع تصویر"
                         >
                           <Share2 className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={handleSaveFilter}
-                          className="bg-sky-600 hover:bg-sky-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm active:scale-95 transition-all"
-                        >
-                          <Save className="w-3.5 h-3.5" />
-                          <span>ذخیره</span>
                         </button>
                       </div>
                     </div>
@@ -1512,7 +1524,7 @@ fun PerspectiveCropView(
                           </div>
                           <div className="flex flex-col min-w-0">
                             <span className="text-xs font-bold text-slate-800 truncate">
-                              تبدیل به PDF واحد
+                              ذخیره و دریافت PDF
                             </span>
                             <span className="text-[10px] text-slate-500 font-medium leading-none mt-0.5">
                               {1 + additionalPages.length} برگه انتخاب‌شده
@@ -1521,16 +1533,16 @@ fun PerspectiveCropView(
                         </div>
 
                         <button
-                          onClick={handleGenerateMultiPagePdf}
+                          onClick={handleSaveFilter}
                           disabled={isGeneratingPdf}
-                          className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs hover:shadow-sm active:scale-95 transition-all disabled:opacity-50 shrink-0 cursor-pointer"
+                          className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs hover:shadow-sm active:scale-95 transition-all disabled:opacity-50 shrink-0 cursor-pointer"
                         >
                           {isGeneratingPdf ? (
                             <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                           ) : (
-                            <Download className="w-3.5 h-3.5" />
+                            <Save className="w-3.5 h-3.5" />
                           )}
-                          <span>دانلود PDF واحد</span>
+                          <span>ذخیره و دریافت PDF</span>
                         </button>
                       </div>
 

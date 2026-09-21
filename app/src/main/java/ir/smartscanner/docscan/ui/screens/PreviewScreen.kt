@@ -241,7 +241,7 @@ fun PreviewScreen(
                         }
                     },
                     actions = {
-                        // دکمه اشتراک‌گذاری
+                        // دکمه اشتراک‌گذاری سریع تصویر جاری
                         IconButton(
                             onClick = {
                                 coroutineScope.launch {
@@ -257,50 +257,6 @@ fun PreviewScreen(
                                 imageVector = Icons.Default.Share,
                                 contentDescription = "اشتراک‌گذاری",
                                 tint = PrimaryBlue
-                            )
-                        }
-
-                        // دکمه ذخیره در حافظه محلی و ساخت PDF
-                        Button(
-                            onClick = {
-                                coroutineScope.launch {
-                                    DocStorageManager.saveDocument(
-                                        context = context,
-                                        title = docTitle,
-                                        filter = pages[0].filter,
-                                        bitmap = pages[0].processedBitmap ?: pages[0].rawBitmap
-                                    )
-                                    val pdfFile = DocStorageManager.createMultiPagePdf(
-                                        context = context,
-                                        pages = allPagesBitmaps,
-                                        title = docTitle
-                                    )
-                                    Toast.makeText(
-                                        context,
-                                        "مدرک «$docTitle» و فایل PDF (${allPagesBitmaps.size} برگه) ذخیره شد",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                    onSaveSuccess()
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primary,
-                                contentColor = Color.White
-                            ),
-                            shape = RoundedCornerShape(10.dp),
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                            modifier = Modifier.padding(start = 4.dp, end = 6.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Save,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "ذخیره",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold
                             )
                         }
                     },
@@ -363,12 +319,20 @@ fun PreviewScreen(
                                 }
                             }
 
-                            // دکمه ساخت و دانلود PDF واحد
+                            // دکمه اصلی و واحد: ذخیره و خروجی PDF
                             Button(
                                 onClick = {
                                     coroutineScope.launch {
                                         isGeneratingPdf = true
                                         try {
+                                            // ۱. ذخیره برگه اصلی در حافظه مدارک
+                                            DocStorageManager.saveDocument(
+                                                context = context,
+                                                title = docTitle,
+                                                filter = pages[0].filter,
+                                                bitmap = pages[0].processedBitmap ?: pages[0].rawBitmap
+                                            )
+                                            // ۲. تولید فایل PDF چندبرگه‌ای با تمام برگه‌های انتخاب‌شده
                                             val pdfFile = DocStorageManager.createMultiPagePdf(
                                                 context = context,
                                                 pages = allPagesBitmaps,
@@ -376,12 +340,14 @@ fun PreviewScreen(
                                             )
                                             Toast.makeText(
                                                 context,
-                                                "فایل PDF با ${allPagesBitmaps.size} برگه با موفقیت تولید شد",
+                                                "مدرک «$docTitle» و فایل PDF (${allPagesBitmaps.size} برگه) با موفقیت ذخیره شد",
                                                 Toast.LENGTH_LONG
                                             ).show()
+                                            // ۳. اشتراک‌گذاری یا نمایش فایل PDF و بازگشت به خانه
                                             DocStorageManager.sharePdfFile(context, pdfFile, docTitle)
+                                            onSaveSuccess()
                                         } catch (e: Exception) {
-                                            Toast.makeText(context, "خطا در ساخت PDF", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, "خطا در ذخیره و ساخت PDF", Toast.LENGTH_SHORT).show()
                                         } finally {
                                             isGeneratingPdf = false
                                         }
@@ -393,7 +359,7 @@ fun PreviewScreen(
                                     contentColor = Color.White
                                 ),
                                 shape = RoundedCornerShape(10.dp),
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp)
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 7.dp)
                             ) {
                                 if (isGeneratingPdf) {
                                     CircularProgressIndicator(
@@ -401,15 +367,21 @@ fun PreviewScreen(
                                         strokeWidth = 2.dp,
                                         color = Color.White
                                     )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "در حال ذخیره...",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
                                 } else {
                                     Icon(
-                                        imageVector = Icons.Default.Download,
+                                        imageVector = Icons.Default.Save,
                                         contentDescription = null,
                                         modifier = Modifier.size(16.dp)
                                     )
                                     Spacer(modifier = Modifier.width(5.dp))
                                     Text(
-                                        text = "دانلود PDF واحد",
+                                        text = "ذخیره و دریافت PDF",
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold
                                     )
