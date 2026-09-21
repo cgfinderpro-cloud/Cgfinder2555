@@ -35,7 +35,7 @@ export function processDocumentImage(
   const totalPixels = width * height;
 
   if (filter === 'color') {
-    // افزایش اشباع رنگی و کنتراست شفاف برای مهرهای رنگی و سربرگ‌ها
+    // افزایش اشباع رنگی و کنتراست شفاف برای نوشته‌های رنگی و سربرگ‌ها
     for (let i = 0; i < totalPixels; i++) {
       const idx = i * 4;
       const r = data[idx];

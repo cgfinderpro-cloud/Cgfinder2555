@@ -48,21 +48,21 @@ interface DocumentItem {
 const INITIAL_DOCUMENTS: DocumentItem[] = [
   {
     id: 'doc-1',
-    title: 'شناسنامه و کارت ملی هوشمند',
+    title: 'یادداشت جلسات و صورت‌جلسه',
     datePersian: '۲۲ اردیبهشت ۱۴۰۳',
     filter: 'photocopy',
     pageCount: 2,
   },
   {
     id: 'doc-2',
-    title: 'قرارداد کاری و سفته بانکی',
+    title: 'فاکتور خرید و رسید پرداخت',
     datePersian: '۱۸ اردیبهشت ۱۴۰۳',
     filter: 'color',
     pageCount: 4,
   },
   {
     id: 'doc-3',
-    title: 'قبض بیمه و گواهی مهارت فنی',
+    title: 'جزوه آموزشی و نکات مطالعه',
     datePersian: '۱۰ اردیبهشت ۱۴۰۳',
     filter: 'bw',
     pageCount: 1,
@@ -227,63 +227,39 @@ export default function App() {
     ctx.fillStyle = glare;
     ctx.fillRect(0, 0, 750, 1050);
 
-    // ۳. متون رسمی با کلمات و اتصالات فارسی
+    // ۳. متون نمونه ساده و استاندارد با کلمات و اتصالات فارسی
     ctx.fillStyle = '#1e293b';
     ctx.font = 'bold 26px Tahoma, sans-serif';
     ctx.textAlign = 'center';
     ctx.direction = 'rtl';
-    ctx.fillText('جمهوری اسلامی ایران - گواهی اسناد رسمی', 375, 80);
+    ctx.fillText('یادداشت و سند نمونه جهت تست اسکنر', 375, 80);
 
     ctx.strokeStyle = '#475569';
-    ctx.lineWidth = 2.5;
+    ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(50, 110);
     ctx.lineTo(700, 110);
     ctx.stroke();
 
     ctx.textAlign = 'right';
-    ctx.font = 'bold 20px Tahoma, sans-serif';
+    ctx.font = 'bold 19px Tahoma, sans-serif';
     ctx.fillStyle = '#0f172a';
-    ctx.fillText('شماره پرونده: ۱۴۰۳/۷۸۹۲/الف - کد ملی: ۰۰۸۳۹۲۸۱۷۲', 700, 160);
+    ctx.fillText('عنوان: گزارش متنی و بررسی پردازش تصویر', 700, 160);
 
     ctx.font = '17px Tahoma, sans-serif';
     ctx.fillStyle = '#334155';
     const lines = [
-      'بدین‌وسیله گواهی می‌شود مدارک هویتی پیوست احراز اصالت گردید.',
-      'این سند حاوی کاغذ روغنی، سلفون شفاف و بازتاب‌های نوری ناهمگون است.',
+      'این برگه حاوی بافت کاغذ، بازتاب‌های نوری ناهمگون و سایه محیطی است.',
       'الگوریتم جدید فتوکپی استودیویی با حذف سایه و گیت نویز Post-Sharpening',
       'تمام لکه‌های تاریک و زردی زمینه را رفع و متون فارسی را شفاف می‌سازد.',
-      'محل صدور: تهران، اداره ثبت اسناد و املاک مرکزی - تاریخ: ۱۴۰۳/۰۲/۱۵',
-      'کلیه مفاد این گواهی رسمی در مراجع اداری نافذ و معتبر است.'
+      'خطوط نازک و متن‌های دست‌نویس با دقت بالا حفظ و تفکیک می‌شوند.',
+      'خروجی نهایی به صورت چندبرگه‌ای در قالب فایل استاندارد PDF ذخیره می‌گردد.'
     ];
     let y = 215;
     for (const line of lines) {
       ctx.fillText(line, 700, y);
       y += 44;
     }
-
-    // ۴. مهر رسمی
-    ctx.save();
-    ctx.strokeStyle = '#dc2626';
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.arc(190, 800, 70, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.font = 'bold 18px Tahoma, sans-serif';
-    ctx.fillStyle = '#dc2626';
-    ctx.textAlign = 'center';
-    ctx.fillText('تأیید شد', 190, 795);
-    ctx.fillText('ثبت اسناد مرکزی', 190, 825);
-    ctx.restore();
-
-    // ۵. امضا و اثر انگشت
-    ctx.strokeStyle = '#1e293b';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(450, 750, 240, 95);
-    ctx.font = '15px Tahoma, sans-serif';
-    ctx.fillStyle = '#475569';
-    ctx.textAlign = 'center';
-    ctx.fillText('محل امضا و اثر انگشت', 570, 805);
 
     return canvas.toDataURL('image/jpeg', 0.92);
   };
@@ -530,7 +506,7 @@ export default function App() {
   const codeSnippets: Record<string, { lang: string; code: string; desc: string }> = {
     'app/build.gradle.kts': {
       lang: 'kotlin',
-      desc: 'پیکربندی دقیق SDK 34، Jetpack Compose و سازگاری استاندارد مایکت و بازار',
+      desc: 'پیکربندی دقیق SDK 34، Jetpack Compose، شناسه نهایی applicationId بدون پسوند debug، و signingConfigs جهت ساخت Release APK',
       code: `plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -541,28 +517,80 @@ android {
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "ir.smartscanner.docscan"
+        applicationId = "ir.smartscanner.docscan" // بدون .debug در بیلد Release
         minSdk = 24
         targetSdk = 34
         versionCode = 1
         versionName = "1.0.0"
     }
 
-    buildFeatures {
-        compose = true
+    signingConfigs {
+        create("release") {
+            val keystorePath = System.getenv("KEYSTORE_PATH")
+            if (!keystorePath.isNullOrEmpty() && file(keystorePath).exists()) {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            }
+        }
     }
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.14"
-    }
-}
 
-dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2024.05.00")
-    implementation(composeBom)
-    implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material:material-icons-extended")
-    implementation("androidx.navigation:navigation-compose:2.7.7")
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+            val releaseSigning = signingConfigs.getByName("release")
+            if (releaseSigning.storeFile != null && releaseSigning.storeFile!!.exists()) {
+                signingConfig = releaseSigning
+            }
+        }
+        debug {
+            applicationIdSuffix = ".debug"
+        }
+    }
 }`
+    },
+    '.github/workflows/release-apk.yml': {
+      lang: 'yaml',
+      desc: 'ورکفلو امن گیت‌هاب اکشنز برای ساخت و امضای امن Release APK با استفاده از GitHub Secrets',
+      code: `name: Build & Sign Release APK
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Decode Keystore from GitHub Secret
+        if: \${{ secrets.KEYSTORE_BASE64 != '' }}
+        run: |
+          echo "\${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > release.keystore
+          echo "KEYSTORE_PATH=\${GITHUB_WORKSPACE}/release.keystore" >> \$GITHUB_ENV
+          echo "KEYSTORE_PASSWORD=\${{ secrets.KEYSTORE_PASSWORD }}" >> \$GITHUB_ENV
+          echo "KEY_ALIAS=\${{ secrets.KEY_ALIAS }}" >> \$GITHUB_ENV
+          echo "KEY_PASSWORD=\${{ secrets.KEY_PASSWORD }}" >> \$GITHUB_ENV
+
+      - name: Build Release APK
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Remove Keystore
+        if: always()
+        run: rm -f release.keystore
+
+      - name: Upload Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: smartscanner-release-apk
+          path: app/build/outputs/apk/release/*.apk`
     },
     'app/src/main/AndroidManifest.xml': {
       lang: 'xml',
@@ -1243,9 +1271,7 @@ fun PerspectiveCropView(
                                   <div className="w-4/5 h-1 bg-slate-300 rounded" />
                                   <div className="w-3/5 h-1 bg-slate-300 rounded" />
                                 </div>
-                                <div className="w-4 h-4 rounded-full border border-red-400 flex items-center justify-center text-[7px] text-red-500 font-bold self-end">
-                                  مهر
-                                </div>
+                                <div className="w-4 h-1 bg-slate-300 rounded self-end" />
                               </>
                             )}
                           </div>
@@ -1371,8 +1397,8 @@ fun PerspectiveCropView(
                         ) : (
                           <div className="w-4/5 h-4/5 bg-amber-50 rounded-xl p-3 text-slate-800 flex flex-col justify-between border border-amber-200 pointer-events-none shadow-md">
                             <div className="flex justify-between items-center text-[9px] border-b border-slate-300 pb-1 font-bold">
-                              <span>جمهوری اسلامی ایران</span>
-                              <span>سند شناسایی</span>
+                              <span>یادداشت نمونه</span>
+                              <span>سند ۱</span>
                             </div>
                             <div className="space-y-1.5 my-auto">
                               <div className="h-2 bg-slate-300 rounded w-2/3" />
@@ -1380,9 +1406,9 @@ fun PerspectiveCropView(
                               <div className="h-1.5 bg-slate-200 rounded w-4/5" />
                               <div className="h-1.5 bg-slate-200 rounded w-3/5" />
                             </div>
-                            <div className="flex justify-between items-center text-[8px] border-t border-slate-300 pt-1">
-                              <span className="text-red-600 font-bold border border-red-500 rounded px-1">تأیید</span>
-                              <span>شماره سند: ۱۴۰۳</span>
+                            <div className="flex justify-between items-center text-[8px] border-t border-slate-300 pt-1 text-slate-500">
+                              <span>اندازه: A4</span>
+                              <span>۳۰۰ DPI</span>
                             </div>
                           </div>
                         )}
@@ -1751,66 +1777,56 @@ fun PerspectiveCropView(
                             </div>
                           ) : (
                             <div 
-                              className="w-[280px] min-h-[380px] flex flex-col justify-between p-1"
+                              className="w-[280px] min-h-[380px] flex flex-col justify-between p-2"
                               style={getFilterStyle(selectedFilter)}
                             >
-                              {/* هدر سند رسمی */}
+                              {/* هدر سند */}
                               <div className="flex items-center justify-between border-b pb-2.5 border-slate-300">
-                                <div className="w-7 h-7 rounded bg-slate-100 flex items-center justify-center text-xs font-bold shadow-xs">
-                                  🇮🇷
-                                </div>
-                                <div className="text-center">
-                                  <span className="text-[10px] font-medium block text-slate-500">جمهوری اسلامی ایران</span>
+                                <div className="text-right">
                                   <h4 className="font-bold text-xs text-slate-900">{activeDoc.title}</h4>
+                                  <span className="text-[10px] text-slate-500">صفحه نمونه اسکن‌شده</span>
                                 </div>
                                 <div className="text-[9px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded font-mono">
                                   ۱۴۰۳/۰۲/۱۵
                                 </div>
                               </div>
 
-                              {/* خطوط شبیه‌سازی متن مدرک اسکن‌شده با کیفیت و کنتراست بالا */}
+                              {/* خطوط شبیه‌سازی متن مدرک اسکن‌شده */}
                               <div className="space-y-1.5 py-2 text-right">
                                 <p className={`text-[10px] font-bold border-b pb-1 ${
                                   selectedFilter === 'photocopy' ? 'text-black border-slate-900 font-black' : 'text-slate-900 border-slate-200'
                                 }`}>
-                                  شماره پرونده: ۱۴۰۳/۷۸۹۲/الف - کد ملی: ۰۰۸۳۹۲۸۱۷۲
+                                  یادداشت و متن آزمایشی جهت تفکیک متن و حذف سایه
                                 </p>
                                 <p className={`text-[9.5px] leading-relaxed ${
                                   selectedFilter === 'photocopy' ? 'text-black font-bold' : 'text-slate-800 font-medium'
                                 }`}>
-                                  بدین‌وسیله گواهی می‌شود مدارک هویتی پیوست پس از بررسی مراجع ذی‌صلاح، احراز اصالت گردید.
+                                  این نمونه جهت بررسی وضوح فیلتر فتوکپی، وضوح خطوط دست‌نویس و متون تایپ‌شده استفاده می‌شود.
                                 </p>
                                 <p className={`text-[9.5px] leading-relaxed ${
                                   selectedFilter === 'photocopy' ? 'text-black font-bold' : 'text-slate-800 font-medium'
                                 }`}>
-                                  محل صدور: تهران، اداره ثبت اسناد و املاک مرکزی - شناسه رهگیری: ۹۲۸۳۷۴۶۱
+                                  الگوریتم هوشمند با تفکیک نور زمینه، هرگونه زردی کاغذ و سایه دست را به صورت یکنواخت رفع می‌کند.
                                 </p>
                                 <p className={`text-[9px] leading-relaxed ${
                                   selectedFilter === 'photocopy' ? 'text-black font-semibold' : 'text-slate-700'
                                 }`}>
-                                  کلیه مفاد و مندرجات این گواهی رسمی دارای اعتبار قانونی بوده و در کلیه مراجع اداری نافذ است.
+                                  امکان ایجاد خروجی چندبرگه‌ای با فشرده‌سازی استاندارد و بهینه‌سازی حجم برای اشتراک سریع فراهم است.
                                 </p>
                                 <p className={`text-[8.5px] pt-0.5 ${
                                   selectedFilter === 'photocopy' ? 'text-slate-900 font-medium' : 'text-slate-600'
                                 }`}>
-                                  جهت استعلام اصالت دیجیتال سند به سامانه الکترونیک خدمات اسناد رسمی مراجعه فرمایید.
+                                  تمام مراحل تبدیل و ذخیره‌سازی به صورت کاملاً آفلاین در حافظه دستگاه انجام می‌گیرد.
                                 </p>
                               </div>
 
-                              {/* مهر و امضای رسمی پایین سند */}
+                              {/* فوتر ساده سند */}
                               <div className="flex items-center justify-between pt-2 border-t border-slate-300">
-                                <div className={`w-12 h-12 rounded-full border-2 flex items-center justify-center text-[9px] font-black rotate-[-12deg] shadow-xs ${
-                                  selectedFilter === 'photocopy' 
-                                    ? 'border-slate-950 text-slate-950 bg-slate-50' 
-                                    : 'border-red-600 text-red-600'
-                                }`}>
-                                  تأیید شد
+                                <div className="text-[9px] text-slate-500">
+                                  کیفیت: استاندارد ۳۰۰ DPI
                                 </div>
-                                <div className="text-left">
-                                  <div className="text-[9px] text-slate-500">محل امضا و اثر انگشت</div>
-                                  <div className={`w-16 h-4 border-b-2 mt-1 ${
-                                    selectedFilter === 'photocopy' ? 'border-black' : 'border-slate-800'
-                                  }`} />
+                                <div className="text-[9px] text-slate-500 font-mono">
+                                  برگه ۱ از ۱
                                 </div>
                               </div>
                             </div>
@@ -2039,27 +2055,41 @@ fun PerspectiveCropView(
                 <Download className="w-5 h-5" />
               </div>
               <div>
-                <h2 className="text-lg font-bold text-white">ورکفلو GitHub Actions برای خروجی APK</h2>
-                <p className="text-xs text-neutral-400">تولید خودکار فایل نصبی آماده انتشار برای مایکت و کافه‌بازار</p>
+                <h2 className="text-lg font-bold text-white">ورکفلو GitHub Actions برای خروجی Release APK</h2>
+                <p className="text-xs text-neutral-400">تولید امن فایل نصبی امضا‌شده و نهایی جهت انتشار در مایکت و بازار</p>
               </div>
             </div>
 
             <div className="space-y-4 text-sm text-neutral-300">
               <div className="bg-neutral-950 p-4 rounded-xl border border-neutral-800 space-y-2">
-                <span className="font-bold text-sky-400 block text-xs">مراحل خودکار ورکفلو (.github/workflows/build-apk.yml):</span>
+                <span className="font-bold text-emerald-400 block text-xs">ورکفلو انتشار Release (.github/workflows/release-apk.yml):</span>
                 <ol className="list-decimal list-inside space-y-2 text-xs text-neutral-400">
-                  <li><strong className="text-neutral-200">راه‌اندازی محیط:</strong> نصب جاوا ۱۷ (Zulu OpenJDK 17) با کش خودکار وابستگی‌های گریدل.</li>
-                  <li><strong className="text-neutral-200">اجرای پرمیشن:</strong> اعطای دسترسی اجرایی با <code className="bg-neutral-800 px-1 py-0.5 rounded text-sky-300">chmod +x ./gradlew</code>.</li>
-                  <li><strong className="text-neutral-200">کامپایل سورس‌ها:</strong> اجرای بیلد از طریق <code className="bg-neutral-800 px-1 py-0.5 rounded text-sky-300">./gradlew assembleDebug --no-daemon</code>.</li>
-                  <li><strong className="text-neutral-200">آپلود خروجی نصبی:</strong> انتشار و ذخیره فایل <code className="bg-neutral-800 px-1 py-0.5 rounded text-emerald-300">app-debug.apk</code> با شناسه Artifact به نام <code className="bg-neutral-800 px-1 py-0.5 rounded text-amber-300">scanner-apk</code>.</li>
+                  <li><strong className="text-neutral-200">شناسه نهایی:</strong> فاقد پسوند <code className="bg-neutral-800 px-1 py-0.5 rounded text-sky-300">.debug</code> بوده و کاملاً برابر با <code className="bg-neutral-800 px-1 py-0.5 rounded text-emerald-300">ir.smartscanner.docscan</code> است.</li>
+                  <li><strong className="text-neutral-200">امنیت Keystore و Secretها:</strong> هیچ فایل Keystore یا کلمه عبوری داخل مخزن ذخیره نمی‌شود. ورکفلو فایل کلید را از سکرت‌های امن گیت‌هاب می‌خواند.</li>
+                  <li><strong className="text-neutral-200">کامپایل سورس‌ها:</strong> اجرای بیلد نهایی با <code className="bg-neutral-800 px-1 py-0.5 rounded text-sky-300">./gradlew assembleRelease --no-daemon</code>.</li>
+                  <li><strong className="text-neutral-200">خروجی نهایی:</strong> انتشار و ذخیره فایل <code className="bg-neutral-800 px-1 py-0.5 rounded text-emerald-300">app-release.apk</code> در بخش Artifacts.</li>
                 </ol>
               </div>
 
               <div className="bg-sky-950/40 border border-sky-800/50 p-4 rounded-xl text-xs space-y-2">
-                <h4 className="font-bold text-sky-300">نحوه اجرای بیلد در گیت‌هاب:</h4>
+                <h4 className="font-bold text-sky-300">تنظیم GitHub Secrets جهت امضای خودکار:</h4>
                 <p className="text-neutral-300 leading-relaxed">
-                  با فشردن دکمه Push به شاخه <code className="text-sky-300">main</code> یا در بخش <strong>Actions</strong> در گیت‌هاب، ورکفلو به صورت خودکار اجرا شده و پس از پایان بیلد می‌توانید فایل نصبی <code className="text-sky-300">scanner-apk</code> را مستقیماً از بخش Artifacts دانلود و روی گوشی‌های اندروید نصب نمایید.
+                  در تنظیمات مخزن گیت‌هاب خود (Settings → Secrets and variables → Actions)، متغیرهای زیر را تعریف کنید:
                 </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2 font-mono text-[11px]">
+                  <div className="bg-neutral-900/90 p-2 rounded border border-neutral-700">
+                    <span className="text-amber-400 font-bold">KEYSTORE_BASE64:</span> محتوای base64 فایل .keystore
+                  </div>
+                  <div className="bg-neutral-900/90 p-2 rounded border border-neutral-700">
+                    <span className="text-amber-400 font-bold">KEYSTORE_PASSWORD:</span> رمز عبور Keystore
+                  </div>
+                  <div className="bg-neutral-900/90 p-2 rounded border border-neutral-700">
+                    <span className="text-amber-400 font-bold">KEY_ALIAS:</span> نام کلید (Key Alias)
+                  </div>
+                  <div className="bg-neutral-900/90 p-2 rounded border border-neutral-700">
+                    <span className="text-amber-400 font-bold">KEY_PASSWORD:</span> رمز عبور کلید
+                  </div>
+                </div>
               </div>
             </div>
           </div>

@@ -11,3 +11,6 @@ coverage/
 *.log
 .env*
 !.env.example
+*.keystore
+*.jks
+release.keystore

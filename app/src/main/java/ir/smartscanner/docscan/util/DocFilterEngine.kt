@@ -374,7 +374,7 @@ object DocFilterEngine {
     }
 
     /**
-     * ساخت بیت‌مپ واقعی برای اسناد نمونه اولیه با نوشته‌های فارسی و مهر رسمی
+     * ساخت بیت‌مپ نمونه ساده و استاندارد برای پیش‌نمایش متنی فیلترها (بدون اطلاعات هویتی یا مهرهای اداری)
      */
     fun createSampleDocBitmap(title: String): Bitmap {
         val width = 900
@@ -387,22 +387,19 @@ object DocFilterEngine {
 
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
-        // سربرگ
+        // عنوان سند
         paint.color = Color.rgb(40, 50, 70)
-        paint.textSize = 34f
-        paint.textAlign = Paint.Align.CENTER
-        canvas.drawText("جمهوری اسلامی ایران", width / 2f, 100f, paint)
-
-        paint.textSize = 42f
+        paint.textSize = 38f
         paint.isFakeBoldText = true
-        canvas.drawText(title, width / 2f, 170f, paint)
+        paint.textAlign = Paint.Align.CENTER
+        canvas.drawText(title, width / 2f, 130f, paint)
 
         // خط جداکننده
-        paint.strokeWidth = 3f
+        paint.strokeWidth = 2.5f
         paint.color = Color.rgb(180, 190, 205)
-        canvas.drawLine(80f, 210f, width - 80f, 210f, paint)
+        canvas.drawLine(80f, 175f, width - 80f, 175f, paint)
 
-        // خطوط متن سند
+        // خطوط متن یادداشت و سند
         paint.isFakeBoldText = false
         paint.strokeWidth = 0f
         paint.color = Color.rgb(55, 65, 81)
@@ -410,47 +407,18 @@ object DocFilterEngine {
         paint.textAlign = Paint.Align.RIGHT
 
         val sampleLines = listOf(
-            "شماره پرونده: ۱۴۰۳/۷۸۹۲/الف - کد ملی: ۰۰۸۳۹۲۸۱۷۲",
-            "بدین‌وسیله گواهی می‌شود مدارک هویتی پیوست احراز اصالت گردید.",
-            "محل صدور: تهران، اداره ثبت اسناد و املاک مرکزی",
-            "کلیه مفاد و مندرجات این سند رسمی مورد تأیید است.",
-            "تاریخ ثبت درخواست: ۱۴۰۳/۰۲/۲۲ - شماره رهگیری: ۹۲۸۳۷۴۶۱",
-            "اعتبار این سند تا پایان سال جاری معتبر و دارای ارزش قانونی می‌باشد.",
-            "جهت استعلام اصالت به سامانه الکترونیک اسناد مراجعه نمایید."
+            "یادداشت و متن آزمایشی جهت بررسی کیفیت اسکن و تفکیک متن",
+            "این متن برای ارزیابی عملکرد فیلتر فتوکپی، حذف سایه و شفاف‌سازی تنظیم شده است.",
+            "قابلیت تفکیک خطوط نازک و حاشیه‌ها با الگوریتم پردازش تصویر محلی بررسی می‌شود.",
+            "تنظیم کنتراست پویا به وضوح بهتر دست‌نوشته‌ها و تایپ در فایل نهایی کمک می‌کند.",
+            "صفحات با ابعاد و وضوح استاندارد در خروجی PDF ذخیره می‌شوند."
         )
 
-        var yPos = 290f
+        var yPos = 260f
         for (line in sampleLines) {
             canvas.drawText(line, width - 80f, yPos, paint)
-            yPos += 75f
+            yPos += 80f
         }
-
-        // مهر قرمز رسمی
-        val stampPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.rgb(215, 38, 38)
-            style = Paint.Style.STROKE
-            strokeWidth = 6f
-        }
-        canvas.drawCircle(220f, 960f, 90f, stampPaint)
-
-        stampPaint.style = Paint.Style.FILL
-        stampPaint.textSize = 26f
-        stampPaint.textAlign = Paint.Align.CENTER
-        stampPaint.isFakeBoldText = true
-        canvas.drawText("مهر تأیید رسمی", 220f, 950f, stampPaint)
-        canvas.drawText("ثبت اسناد", 220f, 990f, stampPaint)
-
-        // کادر امضا
-        val signPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.rgb(30, 41, 59)
-            strokeWidth = 4f
-            style = Paint.Style.STROKE
-        }
-        canvas.drawRoundRect(width - 320f, 890f, width - 80f, 1030f, 16f, 16f, signPaint)
-        signPaint.style = Paint.Style.FILL
-        signPaint.textSize = 24f
-        signPaint.textAlign = Paint.Align.CENTER
-        canvas.drawText("امضا و اثر انگشت", width - 200f, 965f, signPaint)
 
         return bitmap
     }
