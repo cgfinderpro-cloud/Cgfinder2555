@@ -618,47 +618,6 @@ jobs:
     </application>
 </manifest>`
     },
-    '.github/workflows/build-apk.yml': {
-      lang: 'yaml',
-      desc: 'ورکفلو خودکار گیت‌هاب اکشنز برای تولید فایل نصبی app-debug.apk و دانلود به عنوان Artifact',
-      code: `name: Build Android APK
-
-on:
-  push:
-    branches: [ "main", "master" ]
-  pull_request:
-    branches: [ "main", "master" ]
-  workflow_dispatch:
-
-jobs:
-  build:
-    name: Assemble Debug APK
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: '17'
-          cache: 'gradle'
-
-      - name: Grant execute permission for gradlew
-        run: chmod +x ./gradlew
-
-      - name: Build with Gradle
-        run: ./gradlew assembleDebug --no-daemon
-
-      - name: Upload Debug APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: scanner-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
-          retention-days: 14`
-    },
     'NavGraph.kt': {
       lang: 'kotlin',
       desc: 'تعریف مسیرهای سه‌گانه Navigation: صفحه اصلی (Home)، صفحه برش پرسپکتیو (Crop) و پیش‌نمایش نهایی (Preview)',
